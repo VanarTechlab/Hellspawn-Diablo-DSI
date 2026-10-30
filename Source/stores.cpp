@@ -2099,6 +2099,13 @@ void DrawSelector(const Surface &out, const Rectangle &rect, std::string_view te
 
 } // namespace
 
+#ifdef __NDS__ /* NDS-UI */
+bool NdsStoreTextFullSize()
+{
+	return IsTextFullSize;
+}
+#endif
+
 bool StoreAutoPlace(Item &item, bool persistItem)
 {
 	Player &player = *MyPlayer;

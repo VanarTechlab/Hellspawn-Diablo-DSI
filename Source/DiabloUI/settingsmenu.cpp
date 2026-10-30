@@ -371,10 +371,15 @@ void UiSettingsMenu()
 
 		// For the settings menu, we use the full height and allow some more width.
 		const int uiWidth = std::clamp<int>(gnScreenWidth, 640, 720);
+#ifdef __NDS__ /* NDS-FRONT */
+		(void)uiWidth;
+		const Rectangle uiRectangle = GetUIRectangle();
+#else
 		const Rectangle uiRectangle = {
 			{ (gnScreenWidth - uiWidth) / 2, 0 },
 			{ uiWidth, gnScreenHeight }
 		};
+#endif
 
 		UiLoadBlackBackground();
 		LoadScrollBar();

@@ -1,3 +1,6 @@
+#ifdef __NDS__ /* NDS-AUDIO: efectos reales */
+#include "effects.cpp"
+#else
 // Stubbed implementations of effects for the NOSOUND mode.
 #include "effects.h"
 
@@ -59,3 +62,5 @@ std::expected<HeroSpeech, std::string> ParseHeroSpeech(std::string_view value)
 	return std::unexpected("Unknown enum value.");
 }
 } // namespace devilution
+
+#endif

@@ -48,6 +48,9 @@
 #include "engine/dx.h"
 #include "headless_mode.hpp"
 #include "options.h"
+#ifdef __NDS__
+#include "game_mode.hpp"
+#endif
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/sdl_geometry.h"
@@ -90,8 +93,22 @@ uint16_t GetViewportHeight()
 }
 
 Rectangle UIRectangle;
+#ifdef __NDS__ /* NDS-FRONT: superficie compartida para menus y paneles */
+SDL_Surface *NdsUiSurface()
+{
+	static SDL_Surface *surf = nullptr;
+	if (surf == nullptr)
+		surf = SDL_CreateRGBSurface(0, 448 + 640, 480, 8, 0, 0, 0, 0);
+	return surf;
+}
+#endif
+
 const Rectangle &GetUIRectangle()
 {
+#ifdef __NDS__ /* NDS-UI: en partida, la interfaz vive en x>=448, fuera de la pantalla */
+	static const Rectangle NdsUIRect { { 448, 0 }, { 640, 480 } };
+	return NdsUIRect; /* NDS-FRONT: tambien fuera de la partida */
+#endif
 	return UIRectangle;
 }
 

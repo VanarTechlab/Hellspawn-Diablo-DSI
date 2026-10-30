@@ -9,6 +9,10 @@
 #include <expected>
 #include <string>
 
+#ifdef __NDS__
+#include <sys/stat.h>
+#endif
+
 #include "DiabloUI/diabloui.h"
 #include "player.h"
 
@@ -49,10 +53,17 @@ private:
 };
 
 struct SaveWriter {
-	explicit SaveWriter(std::string &&dir)
+	explicit SaveWriter(std::string &&dir, bool /*carryForward*/ = true)
 	    : dir_(std::move(dir))
 	{
-	}
+#ifdef __NDS__
+                // FAT: UNPACKED_SAVES no crea la carpeta del guardado; se crea aqui.
+                std::string d = dir_;
+                while (d.size() > 1 && (d.back() == '/' || d.back() == '\\'))
+                        d.pop_back();
+                ::mkdir(d.c_str(), 0777);
+#endif
+        }
 
 	bool WriteFile(const char *filename, const std::byte *data, size_t size);
 

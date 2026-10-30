@@ -270,6 +270,11 @@ void CalculatePanelAreas()
 		RightPanel.position.x = gnScreenWidth - RightPanel.size.width - LeftPanel.position.x;
 	}
 	RightPanel.position.y = LeftPanel.position.y;
+#ifdef __NDS__ /* NDS-UI */
+	LeftPanel.position = { 448, 0 };
+	MainPanel.position = { 448, 352 }; /* NDS-HUD: el panel se dibuja en la superficie de interfaz */
+	RightPanel.position = { 448 + 320, 0 };
+#endif
 
 	gnViewportHeight = gnScreenHeight;
 	if (gnScreenWidth <= MainPanel.size.width) {

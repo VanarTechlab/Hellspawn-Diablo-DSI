@@ -71,6 +71,11 @@ struct CircleMenuHint {
  * @param hint Struct describing the icon to draw.
  * @param origin Top left corner of the layout (relative to the output buffer).
  */
+#ifdef __NDS__ /* NDS-CHECK */
+extern "C" void nds_lua_check(unsigned code);
+#else /* NDS-CHECK */
+#define nds_lua_check(c) ((void)0)
+#endif /* NDS-CHECK */
 void DrawCircleMenuHint(const Surface &out, const CircleMenuHint &hint, const Point &origin)
 {
 	const Displacement backgroundDisplacement = { ((HintBoxSize - IconSize) / 2) + 1, ((HintBoxSize - IconSize) / 2) - 1 };
@@ -92,9 +97,9 @@ void DrawCircleMenuHint(const Surface &out, const CircleMenuHint &hint, const Po
 		if (iconIndices[slot] == HintIcon::IconNull)
 			continue;
 
-		RenderClxSprite(out, (*hintBoxBackground)[0], iconPositions[slot]);
-		RenderClxSprite(out.subregion(iconPositions[slot].x, iconPositions[slot].y, 37, 38), (*hintIcons)[iconIndices[slot]], { 0, 0 });
-		RenderClxSprite(out, (*hintBox)[0], hintBoxPositions[slot]);
+		{ RenderClxSprite(out, (*hintBoxBackground)[0], iconPositions[slot]); nds_lua_check(200); } /* NDS-CHECK2 */
+		{ RenderClxSprite(out.subregion(iconPositions[slot].x, iconPositions[slot].y, 37, 38), (*hintIcons)[iconIndices[slot]], { 0, 0 }); nds_lua_check(201); } /* NDS-CHECK2 */
+		{ RenderClxSprite(out, (*hintBox)[0], hintBoxPositions[slot]); nds_lua_check(202); } /* NDS-CHECK2 */
 	}
 }
 
@@ -103,6 +108,11 @@ void DrawCircleMenuHint(const Surface &out, const CircleMenuHint &hint, const Po
  * @param out The output buffer to draw on.
  * @param origin Top left corner of the layout (relative to the output buffer).
  */
+#ifdef __NDS__ /* NDS-CHECK */
+extern "C" void nds_lua_check(unsigned code);
+#else /* NDS-CHECK */
+#define nds_lua_check(c) ((void)0)
+#endif /* NDS-CHECK */
 void DrawSpellsCircleMenuHint(const Surface &out, const Point &origin)
 {
 	const Player &myPlayer = *MyPlayer;
@@ -133,12 +143,17 @@ void DrawSpellsCircleMenuHint(const Surface &out, const Point &origin)
 			splId = SpellID::Null;
 		}
 
-		SetSpellTrans(splType);
-		DrawSmallSpellIcon(out, spellIconPositions[slot], splId);
-		RenderClxSprite(out, (*hintBox)[0], hintBoxPositions[slot]);
+		{ SetSpellTrans(splType); nds_lua_check(300); } /* NDS-CHECK2 */
+		{ DrawSmallSpellIcon(out, spellIconPositions[slot], splId); nds_lua_check(301); } /* NDS-CHECK2 */
+		{ RenderClxSprite(out, (*hintBox)[0], hintBoxPositions[slot]); nds_lua_check(302); } /* NDS-CHECK2 */
 	}
 }
 
+#ifdef __NDS__ /* NDS-CHECK */
+extern "C" void nds_lua_check(unsigned code);
+#else /* NDS-CHECK */
+#define nds_lua_check(c) ((void)0)
+#endif /* NDS-CHECK */
 void DrawGamepadMenuNavigator(const Surface &out)
 {
 	if (!PadMenuNavigatorActive || SimulatingMouseWithPadmapper)
@@ -146,8 +161,8 @@ void DrawGamepadMenuNavigator(const Surface &out)
 	static const CircleMenuHint DPad(/*top=*/HintIcon::IconMenu, /*right=*/HintIcon::IconInv, /*bottom=*/HintIcon::IconMap, /*left=*/HintIcon::IconChar);
 	static const CircleMenuHint Buttons(/*top=*/HintIcon::IconNull, /*right=*/HintIcon::IconNull, /*bottom=*/HintIcon::IconSpells, /*left=*/HintIcon::IconQuests);
 	const Rectangle &mainPanel = GetMainPanel();
-	DrawCircleMenuHint(out, DPad, { mainPanel.position.x + CircleMarginX, mainPanel.position.y - CircleTop });
-	DrawCircleMenuHint(out, Buttons, { mainPanel.position.x + mainPanel.size.width - (HintBoxSize * 3) - CircleMarginX - (HintBoxMargin * 2), mainPanel.position.y - CircleTop });
+	{ DrawCircleMenuHint(out, DPad, { mainPanel.position.x + CircleMarginX, mainPanel.position.y - CircleTop }); nds_lua_check(400); } /* NDS-CHECK2 */
+	{ DrawCircleMenuHint(out, Buttons, { mainPanel.position.x + mainPanel.size.width - (HintBoxSize * 3) - CircleMarginX - (HintBoxMargin * 2), mainPanel.position.y - CircleTop }); nds_lua_check(401); } /* NDS-CHECK2 */
 }
 
 void DrawGamepadHotspellMenu(const Surface &out)

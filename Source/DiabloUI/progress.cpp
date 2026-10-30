@@ -73,7 +73,11 @@ void ProgressFreeForeground()
 
 Point GetPosition()
 {
+#ifdef __NDS__ /* NDS-SHARP */
+	return { GetCenterOffset(280), GetCenterOffset(144, 480) };
+#else
 	return { GetCenterOffset(280), GetCenterOffset(144, gnScreenHeight) };
+#endif
 }
 
 void ProgressRenderBackground()

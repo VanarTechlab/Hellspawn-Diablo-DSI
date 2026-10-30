@@ -34,8 +34,50 @@ extern "C" const char *__asan_default_options() // NOLINT(bugprone-reserved-iden
 }
 #endif
 
+#ifdef __NDS__
+extern "C" void nds_platform_init(int *argc, char ***argv);
+#endif
+
+#ifdef __NDS__
+#if __has_include(<lua.hpp>)
+#include <lua.hpp>
+#define NDS_LUA_SELFTEST 1
+#endif
+#include <SDL.h>
+#include <cstdio>
+
+static void NdsLuaSelfTest()
+{
+#ifdef NDS_LUA_SELFTEST
+	lua_State *L = luaL_newstate();
+	if (L == nullptr) {
+		std::printf("LUATEST: sin estado\n");
+	} else {
+		luaL_openlibs(L);
+		const int r = luaL_dostring(L,
+		    "local t = {} for i = 1, 500 do t['k' .. i] = i end "
+		    "local s = 0 for k, v in pairs(t) do s = s + v end "
+		    "return type(pairs) .. ' ' .. s");
+		const char *res = lua_tostring(L, -1);
+		std::printf("LUATEST r=%d %s\n", r, res != nullptr ? res : "(nil)");
+		lua_close(L);
+	}
+#else
+	std::printf("LUATEST: no compilado\n");
+#endif
+	SDL_Delay(4000);
+}
+#endif
+
+#ifdef __NDS__
+#define main DevilutionXMain
+#endif
 extern "C" int main(int argc, char **argv)
 {
+#ifdef __NDS__
+	nds_platform_init(&argc, &argv);
+	NdsLuaSelfTest();
+#endif
 #ifdef __SWITCH__
 	switch_romfs_init();
 	switch_enable_network();
@@ -64,3 +106,29 @@ extern "C" int main(int argc, char **argv)
 #endif
 	return result;
 }
+
+#ifdef __NDS__
+#undef main
+#include <nds/cothread.h>
+#include <threads.h>
+
+static int nds_saved_argc;
+static char **nds_saved_argv;
+
+static int NdsEngineThread(void *)
+{
+	return DevilutionXMain(nds_saved_argc, nds_saved_argv);
+}
+
+extern "C" int main(int argc, char **argv)
+{
+	int result = 0;
+	nds_saved_argc = argc;
+	nds_saved_argv = argv;
+	const cothread_t engine = cothread_create(NdsEngineThread, nullptr, 512 * 1024, 0);
+	if (engine < 0)
+		return 1;
+	thrd_join(engine, &result);
+	return result;
+}
+#endif

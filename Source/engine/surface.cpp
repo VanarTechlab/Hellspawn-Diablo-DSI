@@ -13,9 +13,24 @@ void SurfaceBlit(const Surface &src, SDL_Rect srcRect, const Surface &dst, Point
 	// We do not use `SDL_BlitSurface` here because the palettes may be different objects
 	// and SDL would attempt to map them.
 
+#ifdef __NDS__ /* NDS-FIX: en SDL 1.2 SDL_Rect.w/h son Uint16 y un ancho negativo se volvia enorme */
+	{
+		int sx = srcRect.x, sy = srcRect.y, w = srcRect.w, h = srcRect.h;
+		int dx = dstPosition.x, dy = dstPosition.y;
+		if (dx < 0) { sx -= dx; w += dx; dx = 0; }
+		if (dy < 0) { sy -= dy; h += dy; dy = 0; }
+		if (dx + w > dst.w()) w = dst.w() - dx;
+		if (dy + h > dst.h()) h = dst.h() - dy;
+		if (w <= 0 || h <= 0)
+			return;
+		srcRect = MakeSdlRect(sx, sy, w, h);
+		dstPosition = Point { dx, dy };
+	}
+#else /* NDS-FIX */
 	dst.Clip(&srcRect, &dstPosition);
 	if (srcRect.w <= 0 || srcRect.h <= 0)
 		return;
+#endif /* NDS-FIX */
 
 	const std::uint8_t *srcBuf = src.at(srcRect.x, srcRect.y);
 	const auto srcPitch = src.pitch();

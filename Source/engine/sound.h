@@ -36,11 +36,36 @@ enum _music_id : uint8_t {
 	NUM_MUSIC,
 };
 
+#if defined(NOSOUND) && defined(__NDS__) /* NDS-AUDIO */
+struct NdsSample {
+	void *pcm = nullptr;
+	int bytes = 0;
+	int is16 = 0;
+	int freq = 22050;
+	int lengthMs = 0;
+	int handle = -1;
+	uint32_t endTick = 0;
+	[[nodiscard]] bool IsLoaded() const { return pcm != nullptr; }
+	bool IsPlaying();
+	bool PlayWithVolumeAndPan(int logSoundVolume, int logUserVolume, int logPan);
+	void Stop();
+	void Release();
+	[[nodiscard]] int GetLength() const { return lengthMs; }
+};
+#endif
+
 struct TSnd {
 	uint32_t start_tc;
 
 #ifndef NOSOUND
 	SoundSample DSB;
+
+	bool isPlaying()
+	{
+		return DSB.IsPlaying();
+	}
+#elif defined(__NDS__) /* NDS-AUDIO */
+	NdsSample DSB;
 
 	bool isPlaying()
 	{

@@ -118,6 +118,12 @@ void GmenuLeftRight(bool isRight)
 	sgpCurrItem->fnMenu(false);
 }
 
+
+#ifdef __NDS__ /* NDS-UI-GMENU: centrar el menu en la zona de interfaz (640 de ancho) */
+#define GMENU_SCREEN_W (GetUIRectangle().position.x * 2 + 640)
+#else
+#define GMENU_SCREEN_W gnScreenWidth
+#endif
 int GmenuGetLineWidth(TMenuItem *pItem)
 {
 	if (pItem->isSlider())
@@ -140,7 +146,7 @@ void GmenuDrawMenuItem(const Surface &out, TMenuItem *pItem, int y)
 		ClxDraw(out, { SliderValueLeft + pos - (SliderMarkerWidth / 2) + uiPositionX, y + SliderValuePaddingTop + SliderValueHeight - 1 }, (*option_cel)[0]);
 	}
 
-	const int x = (gnScreenWidth - w) / 2;
+	const int x = (GMENU_SCREEN_W - w) / 2;
 	const UiFlags style = pItem->enabled() ? UiFlags::ColorGold : UiFlags::ColorBlack;
 	DrawString(out, _(pItem->pszStr), Point { x, y },
 	    { .flags = style | UiFlags::FontSize46, .spacing = 2 });
@@ -264,7 +270,7 @@ void gmenu_draw(const Surface &out)
 		}
 		const int uiPositionY = GetUIRectangle().position.y;
 		const ClxSprite sprite = (*sgpLogo)[LogoAnim_frame];
-		ClxDraw(out, { (gnScreenWidth - sprite.width()) / 2, 102 + uiPositionY }, sprite);
+		ClxDraw(out, { (GMENU_SCREEN_W - sprite.width()) / 2, 102 + uiPositionY }, sprite);
 		int y = 110 + uiPositionY;
 		TMenuItem *i = sgpCurrentMenu;
 		if (sgpCurrentMenu->fnMenu != nullptr) {
@@ -339,7 +345,11 @@ bool gmenu_left_mouse(bool isDown)
 		return false;
 	}
 	const Point uiPosition = GetUIRectangle().position;
+#ifdef __NDS__
+	if (MousePosition.y >= uiPosition.y + 352) {
+#else
 	if (MousePosition.y >= GetMainPanel().position.y) {
+#endif
 		return false;
 	}
 	if (MousePosition.y - (GMenuTop + uiPosition.y) < 0) {
@@ -354,7 +364,7 @@ bool gmenu_left_mouse(bool isDown)
 		return true;
 	}
 	const int w = GmenuGetLineWidth(pItem);
-	const uint16_t screenWidth = GetScreenWidth();
+	const uint16_t screenWidth = GMENU_SCREEN_W;
 	if (MousePosition.x < screenWidth / 2 - w / 2) {
 		return true;
 	}

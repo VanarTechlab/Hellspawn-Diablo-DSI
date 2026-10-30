@@ -27,6 +27,7 @@
 #include "utils/str_cat.hpp"
 #include "utils/string_or_view.hpp"
 
+#include "mods/mod_identity.h"
 #ifndef UNPACKED_MPQS
 #include "mods/mod_identity.h"
 #include "mpq/mpq_reader.hpp"

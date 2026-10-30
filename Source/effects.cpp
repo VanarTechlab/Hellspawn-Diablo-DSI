@@ -163,6 +163,9 @@ void PrivSoundInit(uint8_t bLoadMask)
 	}
 
 	if (sgSFX.empty()) LoadEffectsData();
+#ifdef __NDS__ /* NDS-AUDIO: carga perezosa, se cargan al sonar por primera vez */
+	return;
+#endif
 
 	for (auto &sfx : sgSFX) {
 		if (sfx.bFlags == 0 || sfx.pSnd != nullptr) {

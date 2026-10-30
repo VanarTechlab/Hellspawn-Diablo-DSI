@@ -746,6 +746,9 @@ bool UiValidPlayerName(std::string_view name)
 Sint16 GetCenterOffset(Sint16 w, Sint16 bw)
 {
 	if (bw == 0) {
+#ifdef __NDS__ /* NDS-SHARP: centrar en la zona de interfaz */
+		return static_cast<Sint16>(GetUIRectangle().position.x + (640 - w) / 2);
+#endif
 		bw = gnScreenWidth;
 	}
 
@@ -794,6 +797,9 @@ void UiAddLogo(std::vector<std::unique_ptr<UiItemBase>> *vecDialog, int y)
 	    *ArtLogo, MakeSdlRect(0, y, 0, 0), UiFlags::AlignCenter));
 }
 
+#ifdef __NDS__ /* NDS-FRONT */
+extern "C" void nds_ui_frame(const unsigned char *pixels, int pitch, int mode);
+#endif
 void UiFadeIn()
 {
 	if (HeadlessMode) return;
@@ -801,6 +807,12 @@ void UiFadeIn()
 	if (DiabloUiSurface() == PalSurface) {
 		BltFast(nullptr, nullptr);
 	}
+#ifdef __NDS__
+	else {
+		SDL_Surface *s = DiabloUiSurface();
+		nds_ui_frame(static_cast<const unsigned char *>(s->pixels) + 448, s->pitch, 4);
+	}
+#endif
 	RenderPresent();
 }
 

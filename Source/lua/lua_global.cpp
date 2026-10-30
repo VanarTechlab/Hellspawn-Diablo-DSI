@@ -49,6 +49,10 @@
 #include "lua/repl.hpp"
 #endif
 
+#ifdef __NDS__
+extern "C" void *nds_lua_state;
+#endif
+
 namespace devilution {
 
 namespace {
@@ -285,6 +289,9 @@ void LuaInitialize()
 	CurrentLuaState.emplace();
 	sol::state &lua = CurrentLuaState->sol;
 	lua_setwarnf(lua.lua_state(), LuaWarn, /*ud=*/nullptr);
+#ifdef __NDS__
+	nds_lua_state = lua.lua_state();
+#endif
 	lua.open_libraries(
 	    sol::lib::base,
 	    sol::lib::coroutine,
@@ -331,6 +338,9 @@ void LuaInitialize()
 
 void LuaShutdown()
 {
+#ifdef __NDS__
+	nds_lua_state = nullptr;
+#endif
 #ifdef _DEBUG
 	LuaReplShutdown();
 #endif

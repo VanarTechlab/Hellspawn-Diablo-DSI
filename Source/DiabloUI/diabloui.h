@@ -19,6 +19,9 @@
 #include "engine/load_pcx.hpp" // IWYU pragma: export
 #include "player.h"
 #include "utils/display.h"
+#ifdef __NDS__
+#include "game_mode.hpp"
+#endif
 
 namespace devilution {
 
@@ -80,8 +83,15 @@ extern OptionalOwnedClxSpriteList ArtCursor;
 
 extern bool (*gfnHeroInfo)(bool (*fninfofunc)(_uiheroinfo *));
 
+#ifdef __NDS__ /* NDS-FRONT */
+SDL_Surface *NdsUiSurface();
+#endif
 inline SDL_Surface *DiabloUiSurface()
 {
+#ifdef __NDS__
+	if (!gbRunGame && NdsUiSurface() != nullptr)
+		return NdsUiSurface();
+#endif
 	return PalSurface;
 }
 

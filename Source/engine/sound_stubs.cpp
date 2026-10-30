@@ -1,3 +1,6 @@
+#ifdef __NDS__ /* NDS-AUDIO */
+#include "engine/sound_nds.inc"
+#else
 // Stubbed implementations of sound functions for the NOSOUND mode.
 #include "engine/sound.h"
 
@@ -26,3 +29,5 @@ void music_unmute() { }
 _music_id GetLevelMusic(dungeon_type dungeonType) { return TMUSIC_TOWN; }
 
 } // namespace devilution
+
+#endif

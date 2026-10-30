@@ -52,6 +52,13 @@
 #define LOAD_ON_MAIN_THREAD
 #endif
 
+/* NDS: carga en el hilo principal */
+#ifdef __NDS__
+#ifndef LOAD_ON_MAIN_THREAD
+#define LOAD_ON_MAIN_THREAD
+#endif
+#endif
+
 namespace devilution {
 
 namespace {
@@ -222,10 +229,18 @@ void FreeCutsceneBackground()
 	ArtCutsceneWidescreen = std::nullopt;
 }
 
+#ifdef __NDS__ /* NDS-FRONT */
+extern "C" void nds_ui_frame(const unsigned char *pixels, int pitch, int mode);
+#endif
 void DrawCutsceneBackground()
 {
 	const Rectangle &uiRectangle = GetUIRectangle();
+#ifdef __NDS__ /* NDS-FRONT */
+	const Surface out = Surface(NdsUiSurface());
+	nds_ui_frame(static_cast<const unsigned char *>(out.surface->pixels) + 448, out.surface->pitch, 4);
+#else
 	const Surface &out = GlobalBackBuffer();
+#endif
 	SDL_FillSurfaceRect(out.surface, nullptr, 0);
 	if (ArtCutsceneWidescreen) {
 		const ClxSprite sprite = (*ArtCutsceneWidescreen)[0];
@@ -237,7 +252,12 @@ void DrawCutsceneBackground()
 void DrawCutsceneForeground()
 {
 	const Rectangle &uiRectangle = GetUIRectangle();
+#ifdef __NDS__ /* NDS-FRONT */
+	const Surface out = Surface(NdsUiSurface());
+	nds_ui_frame(static_cast<const unsigned char *>(out.surface->pixels) + 448, out.surface->pitch, 4);
+#else
 	const Surface &out = GlobalBackBuffer();
+#endif
 	constexpr int ProgressHeight = 22;
 	SDL_Rect rect = MakeSdlRect(
 	    out.region.x + BarPos[progress_id][0] + uiRectangle.position.x,

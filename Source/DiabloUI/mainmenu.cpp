@@ -78,7 +78,11 @@ void MainmenuLoad(const char *name)
 
 	vecMainMenuDialog.push_back(std::make_unique<UiList>(vecMenuItems, vecMenuItems.size(), uiPosition.x + 64, (uiPosition.y + 192), 510, 43, UiFlags::FontSize42 | UiFlags::ColorUiGold | UiFlags::AlignCenter, 5));
 
+#ifdef __NDS__ /* NDS-FRONT */
+	const SDL_Rect rect2 = { (Sint16)(uiPosition.x + 17), (Sint16)(uiPosition.y + 480 - 36), 605, 21 };
+#else
 	const SDL_Rect rect2 = { 17, (Sint16)(gnScreenHeight - 36), 605, 21 };
+#endif
 	vecMainMenuDialog.push_back(std::make_unique<UiArtText>(name, rect2, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark));
 
 #ifndef NOEXIT

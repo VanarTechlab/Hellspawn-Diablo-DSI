@@ -84,6 +84,9 @@ void ToggleCharPanel();
  */
 [[nodiscard]] inline bool CanPanelsCoverView()
 {
+#ifdef __NDS__ /* NDS-UI: los paneles van aparte, nunca tapan el mundo */
+	return false;
+#endif
 	const Rectangle &mainPanel = GetMainPanel();
 	return GetScreenWidth() <= mainPanel.size.width && GetScreenHeight() <= SidePanelSize.height + mainPanel.size.height;
 }

@@ -37,6 +37,14 @@
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/sdl_wrap.h"
+#ifdef __NDS__ /* NDS-VIDAUDIO */
+#include <cmath>
+extern "C" void nds_vid_audio_begin(int rate, int channels, int bits, int vol);
+extern "C" void nds_vid_audio_push(const void *data, int bytes);
+extern "C" void nds_vid_audio_end(void);
+static bool NdsVidAudio;
+static int16_t *NdsVidAudioBuf;
+#endif
 
 namespace devilution {
 namespace {
@@ -220,8 +228,16 @@ void UpdatePalette()
 #endif
 }
 
+#ifdef __NDS__ /* NDS-FRONT: el video se reduce en la capa SDL */
+extern "C" void nds_ui_frame_scaled(const unsigned char *pixels, int pitch, int w, int h);
+#endif
 bool BlitFrame()
 {
+#ifdef __NDS__
+	nds_ui_frame_scaled(static_cast<const unsigned char *>(SVidSurface->pixels), SVidSurface->pitch, static_cast<int>(SVidWidth), static_cast<int>(SVidHeight));
+	RenderPresent();
+	return true;
+#endif
 #ifndef USE_SDL1
 	if (renderer != nullptr) {
 		if (
@@ -403,6 +419,18 @@ bool SVidPlayBegin(const char *filename, int flags)
 	}
 #endif
 
+#ifdef __NDS__ /* NDS-VIDAUDIO */
+	{
+		const auto info = Smacker_GetAudioTrackDetails(SVidHandle, 0);
+		NdsVidAudio = (flags & 0x1000000) == 0 && info.bitsPerSample != 0 && gbSndInited && gbSoundOn;
+		if (NdsVidAudio) {
+			NdsVidAudioBuf = new int16_t[info.idealBufferSize / 2 + 2];
+			const int v = *GetOptions().Audio.soundVolume;
+			const float lin = std::pow(10.F, ((static_cast<float>(v - VOLUME_MIN) / -VOLUME_MIN) * 10000.F - 10000.F) / 3321.9281F);
+			nds_vid_audio_begin(static_cast<int>(info.sampleRate), info.nChannels, info.bitsPerSample, static_cast<int>(lin * 127.F));
+		}
+	}
+#endif
 	// SMK format internally defines the frame rate as the frame duration
 	// in either milliseconds or SMK time units (0.01ms). The library converts it
 	// to FPS, which is always an integer, and here we convert it back to SMK time units.
@@ -471,13 +499,25 @@ bool SVidPlayBegin(const char *filename, int flags)
 	return true;
 }
 
+#ifdef __NDS__ /* NDS-VIDEO: el DSi no llega a tiempo; mejor todos los fotogramas, mas despacio */
+const bool &NdsAllowFrameSkip = NdsVidAudio; /* NDS-VIDAUDIO: con sonido, el audio marca el ritmo */
+#else
+constexpr bool NdsAllowFrameSkip = true;
+#endif
 bool SVidPlayContinue()
 {
 	if (Smacker_DidPaletteChange(SVidHandle)) {
 		UpdatePalette();
 	}
+#ifdef __NDS__ /* NDS-VIDAUDIO: el audio de cada fotograma va siempre, aunque el video se salte */
+	if (NdsVidAudio) {
+		const auto len = Smacker_GetAudioData(SVidHandle, 0, NdsVidAudioBuf);
+		if (len > 0)
+			nds_vid_audio_push(NdsVidAudioBuf, static_cast<int>(len));
+	}
+#endif
 
-	if (GetTicksSmk() >= SVidFrameEnd) {
+	if (NdsAllowFrameSkip && GetTicksSmk() >= SVidFrameEnd) {
 #if defined(USE_SDL3) && !defined(NOSOUND)
 		if (ShouldPushAudioData()) SDL_ClearAudioStream(SVidAudioStream);
 #endif
@@ -505,7 +545,7 @@ bool SVidPlayContinue()
 	}
 #endif
 
-	if (GetTicksSmk() >= SVidFrameEnd) {
+	if (NdsAllowFrameSkip && GetTicksSmk() >= SVidFrameEnd) {
 		return SVidLoadNextFrame(); // Skip video if the system is to slow
 	}
 
@@ -543,6 +583,15 @@ void SVidPlayEnd()
 		Smacker_Close(SVidHandle);
 
 	SVidPalette = nullptr;
+#ifdef __NDS__
+	nds_ui_frame_scaled(nullptr, 0, 0, 0);
+	if (NdsVidAudio) { /* NDS-VIDAUDIO */
+		nds_vid_audio_end();
+		NdsVidAudio = false;
+	}
+	delete[] NdsVidAudioBuf;
+	NdsVidAudioBuf = nullptr;
+#endif
 	SVidSurface = nullptr;
 	SVidFrameBuffer = nullptr;
 

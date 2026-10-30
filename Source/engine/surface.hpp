@@ -110,6 +110,22 @@ struct Surface {
 	 */
 	Surface subregion(int x, int y, int w, int h) const
 	{
+		#ifdef __NDS__ /* NDS-FIX-SUB: recortar a la superficie real (antes escribia fuera) */
+		if (x < 0 || y < 0 || x >= static_cast<int>(region.w) || y >= static_cast<int>(region.h)) {
+			x = 0;
+			y = 0;
+			w = 0;
+			h = 0;
+		}
+		if (x + w > static_cast<int>(region.w))
+			w = static_cast<int>(region.w) - x;
+		if (y + h > static_cast<int>(region.h))
+			h = static_cast<int>(region.h) - y;
+		if (w < 0)
+			w = 0;
+		if (h < 0)
+			h = 0;
+		#endif /* NDS-FIX-SUB */
 		return Surface(surface, MakeSdlRect(region.x + x, region.y + y, w, h));
 	}
 

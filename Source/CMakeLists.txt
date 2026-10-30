@@ -896,6 +896,8 @@ if(NOSOUND)
     libdevilutionx_options
     libdevilutionx_random
     libdevilutionx_sdl2_to_1_2_backports
+    PRIVATE
+    libdevilutionx_game_mode # NDS-AUDIO
   )
 else()
   add_devilutionx_object_library(libdevilutionx_sound

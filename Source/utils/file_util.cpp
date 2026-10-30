@@ -58,6 +58,10 @@
 #endif
 #endif
 
+#ifdef __NDS__
+extern "C" void nds_trace_open(const char *path);
+#endif
+
 namespace devilution {
 
 #if defined(_WIN32) && !defined(DEVILUTIONX_WINDOWS_NO_WCHAR)
@@ -492,6 +496,9 @@ void RemoveFile(const char *path)
 
 FILE *OpenFile(const char *path, const char *mode)
 {
+#ifdef __NDS__
+	nds_trace_open(path);
+#endif
 #if defined(_WIN32) && !defined(DEVILUTIONX_WINDOWS_NO_WCHAR)
 	std::unique_ptr<wchar_t[]> pathUtf16;
 	std::unique_ptr<wchar_t[]> modeUtf16;
