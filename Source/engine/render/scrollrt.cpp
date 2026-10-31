@@ -253,6 +253,23 @@ bool ShouldShowCursor()
  * @param position Target buffer coordinate
  * @param clx CLX frame
  */
+#ifdef __NDS__ /* NDS-TRN: color del tipo de monstruo + tabla final (luz, unico, piedra, infravision) */
+void NdsDrawTRN2(const Surface &out, Point position, ClxSprite clx, const uint8_t *base, const uint8_t *trn)
+{
+	if (base == nullptr) {
+		if (trn != nullptr)
+			ClxDrawTRN(out, position, clx, trn);
+		else
+			ClxDraw(out, position, clx);
+		return;
+	}
+	uint8_t tbl[256];
+	for (int c = 0; c < 256; c++)
+		tbl[c] = trn != nullptr ? trn[base[c]] : base[c];
+	ClxDrawTRN(out, position, clx, tbl);
+}
+#endif
+
 inline void ClxDrawLight(const Surface &out, Point position, ClxSprite clx, int lightTableIndex)
 {
 	if (lightTableIndex != 0) {
@@ -388,10 +405,18 @@ void DrawMonster(const Surface &out, Point tilePosition, Point targetBufferPosit
 
 	const ClxSprite sprite = monster.animInfo.currentSprite();
 
+#ifdef __NDS__ /* NDS-TRN */
+	const uint8_t *ndsBase = monster.type().ndsTrn.get();
+	if (!IsTileLit(tilePosition)) {
+		NdsDrawTRN2(out, targetBufferPosition, sprite, ndsBase, GetInfravisionTRN());
+		return;
+	}
+#else
 	if (!IsTileLit(tilePosition)) {
 		ClxDrawTRN(out, targetBufferPosition, sprite, GetInfravisionTRN());
 		return;
 	}
+#endif
 	uint8_t *trn = nullptr;
 	if (monster.isUnique())
 		trn = monster.uniqueMonsterTRN.get();
@@ -399,10 +424,17 @@ void DrawMonster(const Surface &out, Point tilePosition, Point targetBufferPosit
 		trn = GetStoneTRN();
 	if (MyPlayer->_pInfraFlag && lightTableIndex > 8)
 		trn = GetInfravisionTRN();
+#ifdef __NDS__ /* NDS-TRN */
+	if (trn != nullptr)
+		NdsDrawTRN2(out, targetBufferPosition, sprite, ndsBase, trn);
+	else
+		NdsDrawTRN2(out, targetBufferPosition, sprite, ndsBase, lightTableIndex != 0 ? LightTables[lightTableIndex].data() : nullptr);
+#else
 	if (trn != nullptr)
 		ClxDrawTRN(out, targetBufferPosition, sprite, trn);
 	else
 		ClxDrawLight(out, targetBufferPosition, sprite, lightTableIndex);
+#endif
 }
 
 /**
@@ -415,6 +447,11 @@ void DrawPlayerIconHelper(const Surface &out, MissileGraphicID missileGraphicId,
 	if (player.isWalking())
 		position += GetOffsetForWalking(player.AnimInfo, player._pdir);
 
+#ifdef __NDS__
+	(void)GetMissileSpriteData(missileGraphicId).LoadGFX(); /* NDS-LAZY */
+	if (!GetMissileSpriteData(missileGraphicId).sprites)
+		return;
+#endif
 	position.x -= GetMissileSpriteData(missileGraphicId).animWidth2;
 
 	const ClxSprite sprite = (*GetMissileSpriteData(missileGraphicId).sprites).list()[0];
@@ -806,12 +843,21 @@ void DrawDungeon(const Surface &out, const Lightmap &lightmap, Point tilePositio
 		const Corpse &corpse = Corpses[(bDead & 0x1F) - 1];
 		const Point position { targetBufferPosition.x - CalculateSpriteTileCenterX(corpse.width), targetBufferPosition.y };
 		const ClxSprite sprite = corpse.spritesForDirection(static_cast<Direction>((bDead >> 5) & 7))[corpse.frame];
+#ifdef __NDS__ /* NDS-TRN */
+		if (corpse.translationPaletteIndex != 0) {
+			const uint8_t *trn = Monsters[corpse.translationPaletteIndex - 1].uniqueMonsterTRN.get();
+			NdsDrawTRN2(out, position, sprite, corpse.ndsTrn, trn);
+		} else {
+			NdsDrawTRN2(out, position, sprite, corpse.ndsTrn, lightTableIndex != 0 ? LightTables[lightTableIndex].data() : nullptr);
+		}
+#else
 		if (corpse.translationPaletteIndex != 0) {
 			const uint8_t *trn = Monsters[corpse.translationPaletteIndex - 1].uniqueMonsterTRN.get();
 			ClxDrawTRN(out, position, sprite, trn);
 		} else {
 			ClxDrawLight(out, position, sprite, lightTableIndex);
 		}
+#endif
 	}
 
 	const int8_t bItem = dItem[tilePosition.x][tilePosition.y];
@@ -1323,6 +1369,12 @@ extern "C" void nds_lua_check(unsigned code);
 } // namespace (se cierra un momento para declarar funciones externas)
 extern "C" void nds_ui_frame(const unsigned char *pixels, int pitch, int mode);
 bool NdsStoreTextFullSize();
+void NdsStoreDraw(const Surface &out); /* NDS-TIENDA */
+#ifdef __NDS__ /* NDS-PROF */
+extern "C" unsigned nds_usec(void);
+extern "C" void nds_prof_add(int which, unsigned us);
+extern "C" const char *nds_prof_line(int n);
+#endif
 extern "C" void nds_ui_menu_keys(int on); /* NDS-BOTONES3 */
 extern "C" void nds_hud_frame(const unsigned char *panel, int pitch, int xpPermille);
 SDL_Surface *NdsUiSurface();
@@ -1362,7 +1414,7 @@ void DrawView(const Surface &out, Point startPosition)
 #endif
 	Displacement offset = {};
 	{ CalcFirstTilePosition(startPosition, offset); nds_lua_check(100); } /* NDS-CHECK2 */
-	{ DrawGame(out, startPosition, offset); nds_lua_check(101); } /* NDS-CHECK2 */
+	{ const unsigned ndsPg = nds_usec(); DrawGame(out, startPosition, offset); nds_prof_add(1, nds_usec() - ndsPg); /* NDS-PROF */ nds_lua_check(101); } /* NDS-CHECK2 */
 	if (AutomapActive) {
 		{ DrawAutomap(out.subregionY(0, gnViewportHeight)); nds_lua_check(102); } /* NDS-CHECK2 */
 	}
@@ -1934,6 +1986,9 @@ void DrawAndBlit()
 	}
 
 	const Surface &out = GlobalBackBuffer();
+#ifdef __NDS__ /* NDS-PROF */
+	const unsigned ndsPf = nds_usec();
+#endif
 	UndrawCursor(out);
 #ifdef __NDS__ /* NDS-HUD */
 	const Surface pan = Surface(NdsUiSurface());
@@ -1947,7 +2002,13 @@ void DrawAndBlit()
 
 	this_sdl_thread::yield();
 	nds_lua_check(22); /* NDS-CHECK */
+#ifdef __NDS__
+	const unsigned ndsPv = nds_usec();
+#endif
 	DrawView(out, ViewPosition);
+#ifdef __NDS__
+	nds_prof_add(2, nds_usec() - ndsPv); /* NDS-PROF */
+#endif
 	nds_lua_check(23); /* NDS-CHECK */
 	if (drawCtrlPan) {
 		DrawMainPanel(pan);
@@ -1994,6 +2055,9 @@ void DrawAndBlit()
 		DrawPartyMemberInfoPanel(out);
 		nds_lua_check(35); /* NDS-CHECK */
 
+#ifdef __NDS__ /* NDS-PROF */
+	nds_prof_add(4, nds_usec() - ndsPf);
+#endif
 #ifdef __NDS__ /* NDS-HUD: avisar a la capa SDL (panel y experiencia) */
 	{
 		const Player &hudPlayer = *MyPlayer;
@@ -2004,20 +2068,39 @@ void DrawAndBlit()
 			const uint64_t next = GetNextExperienceThresholdForLevel(lvl);
 			xp = (hudPlayer._pExperience <= prev || next <= prev) ? 0 : static_cast<int>((hudPlayer._pExperience - prev) * 1000 / (next - prev));
 		}
-		{ /* NDS-HUD3: minimapa en la zona libre de la superficie de interfaz (0,0)-(255,95) */
+		static unsigned ndsMapN; /* NDS-RAPIDO7: minimapa al cambiar de casilla, al entrar/salir de tienda o cada 15 fotogramas */
+		static Point ndsMapTile;
+		static bool ndsMapStore;
+		bool ndsMapDue = false;
+		if (MyPlayer->position.tile != ndsMapTile || IsPlayerInStore() != ndsMapStore || ++ndsMapN >= 15) {
+			ndsMapTile = MyPlayer->position.tile;
+			ndsMapStore = IsPlayerInStore();
+			ndsMapN = 0;
+			ndsMapDue = true;
+		}
+		const bool ndsStore = IsPlayerInStore() && !qtextflag && NdsStoreTextFullSize(); /* NDS-TIENDA */
+		if (ndsStore || ndsMapDue) { /* NDS-HUD3: minimapa en la zona libre de la superficie de interfaz (0,0)-(255,95) */
 			const Surface mapOut = pan.subregion(0, 0, 256, 96);
 			for (int y = 0; y < 96; y++)
 				std::memset(mapOut.at(0, y), 0, 256);
+			if (ndsStore) /* NDS-TIENDA: arriba el detalle de la tienda en vez del minimapa */
+				NdsStoreDraw(mapOut);
+			else {
 			const AutomapType prevType = GetAutomapType();
 			const Rectangle prevRect = MinimapRect;
 			const int prevScale = MinimapScale;
 			SetAutomapType(AutomapType::Minimap);
 			MinimapRect = { { 2, 2 }, { 252, 92 } };
 			MinimapScale = 25;
+			const unsigned ndsPm = nds_usec();
 			DrawAutomap(mapOut);
+			nds_prof_add(3, nds_usec() - ndsPm); /* NDS-PROF */
+			for (int ln = 0; ln < 4; ln++) /* NDS-PROF: medidas en el minimapa (NDS-RAPIDO5: 4 lineas) */
+				DrawString(mapOut, nds_prof_line(ln), Point { 6, 38 + ln * 14 }, { .flags = UiFlags::ColorWhite });
 			SetAutomapType(prevType);
 			MinimapRect = prevRect;
 			MinimapScale = prevScale;
+			} /* NDS-TIENDA */
 		}
 		nds_hud_frame(pan.at(448, 352), pan.pitch(), xp);
 	}

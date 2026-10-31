@@ -864,6 +864,11 @@ void GameEventHandler(const SDL_Event &event, uint16_t modState)
 	}
 }
 
+#ifdef __NDS__ /* NDS-PROF */
+extern "C" unsigned nds_usec(void);
+extern "C" void nds_prof_add(int which, unsigned us);
+extern "C" const char *nds_prof_line(int n);
+#endif
 void RunGameLoop(interface_mode uMsg)
 {
 	demo::NotifyGameLoopStart();
@@ -941,8 +946,14 @@ void RunGameLoop(interface_mode uMsg)
 
 		ProcessGameMessagePackets();
 		this_sdl_thread::yield();
+#ifdef __NDS__ /* NDS-PROF */
+		const unsigned ndsProfT0 = nds_usec();
+#endif
 		if (game_loop(gbGameLoopStartup))
 			diablo_color_cyc_logic();
+#ifdef __NDS__
+		nds_prof_add(0, nds_usec() - ndsProfT0);
+#endif
 		gbGameLoopStartup = false;
 		if (drawGame)
 			DrawAndBlit();
@@ -1520,29 +1531,40 @@ void UpdateMonsterLights()
 	}
 }
 
+#ifdef __NDS__ /* NDS-ATAJO */
+extern "C" int nds_take_warp(void);
+#endif
 void GameLogic()
 {
 	if (!ProcessInput()) {
 		return;
 	}
+#ifdef __NDS__ /* NDS-ATAJO: L+R 2 s = siguiente nivel (pruebas) */
+	if (nds_take_warp() && !gbIsMultiplayer && !setlevel && currlevel < 16) {
+		StartNewLvl(*MyPlayer, interface_mode::WM_DIABNEXTLVL, currlevel + 1);
+		return;
+	}
+#endif
 	if (gbProcessPlayers) {
 		gGameLogicStep = GameLogicStep::ProcessPlayers;
-		ProcessPlayers();
+		{ const unsigned ndsT = nds_usec(); ProcessPlayers(); nds_prof_add(6, nds_usec() - ndsT); } /* NDS-RAPIDO5 */
 	}
 	if (leveltype != DTYPE_TOWN) {
 		gGameLogicStep = GameLogicStep::ProcessMonsters;
 #ifdef _DEBUG
 		if (!DebugInvisible)
 #endif
-			ProcessMonsters();
+			{ const unsigned ndsT = nds_usec(); ProcessMonsters(); nds_prof_add(7, nds_usec() - ndsT); } /* NDS-RAPIDO5 */
 		gGameLogicStep = GameLogicStep::ProcessObjects;
+		{ const unsigned ndsT = nds_usec(); /* NDS-RAPIDO5 */
 		ProcessObjects();
 		gGameLogicStep = GameLogicStep::ProcessMissiles;
 		ProcessMissiles();
 		gGameLogicStep = GameLogicStep::ProcessItems;
 		ProcessItems();
-		ProcessLightList();
-		ProcessVisionList();
+		nds_prof_add(8, nds_usec() - ndsT); }
+		{ const unsigned ndsT = nds_usec(); ProcessLightList(); nds_prof_add(9, nds_usec() - ndsT); } /* NDS-RAPIDO5 */
+		{ const unsigned ndsT = nds_usec(); ProcessVisionList(); nds_prof_add(10, nds_usec() - ndsT); } /* NDS-RAPIDO5 */
 	} else {
 		gGameLogicStep = GameLogicStep::ProcessTowners;
 		ProcessTowners();

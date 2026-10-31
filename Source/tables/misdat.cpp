@@ -455,12 +455,16 @@ std::expected<void, std::string> InitMissileGFX()
 	if (HeadlessMode)
 		return {};
 
+#ifdef __NDS__ /* NDS-LAZY: el resto se carga al usarse (SetMissAnim) */
+	return GetMissileSpriteData(MissileGraphicID::StoneCurseShatter).LoadGFX();
+#else
 	for (MissileFileData &missileSprite : MissileSpriteData) {
 		if (missileSprite.flags == MissileGraphicsFlags::MonsterOwned)
 			continue;
 		RETURN_IF_ERROR(missileSprite.LoadGFX());
 	}
 	return {};
+#endif
 }
 
 void FreeMissileGFX()

@@ -6,6 +6,21 @@
 
 #include "utils/attributes.h"
 
+#ifndef NDS_TOUCH /* NDS-RAPIDO3: traer a la cache las lineas de destino antes de escribir */
+#ifdef __NDS__
+static inline __attribute__((always_inline)) void nds_touch_lines(const void *p, unsigned n)
+{
+	uintptr_t a = reinterpret_cast<uintptr_t>(p) & ~static_cast<uintptr_t>(31);
+	const uintptr_t e = reinterpret_cast<uintptr_t>(p) + n - 1;
+	for (; a <= e; a += 32)
+		(void)*reinterpret_cast<volatile const uint8_t *>(a);
+}
+#define NDS_TOUCH(p, n) nds_touch_lines((p), static_cast<unsigned>(n))
+#else
+#define NDS_TOUCH(p, n) ((void)0)
+#endif
+#endif
+
 namespace devilution {
 
 /**
@@ -21,6 +36,7 @@ DVL_ALWAYS_INLINE void CopyBytesUpTo32(uint8_t *DVL_RESTRICT dst, const uint8_t 
 {
 	assert(n > 0);
 	assert(n <= 32);
+	NDS_TOUCH(dst, n); /* NDS-RAPIDO3 */
 	if constexpr (sizeof(void *) == 8) {
 		if (n >= 16) {
 			uint64_t a, b, c, d;
@@ -115,6 +131,7 @@ DVL_ALWAYS_INLINE void FillBytesUpTo32(uint8_t *dst, int n, uint8_t value)
 {
 	assert(n > 0);
 	assert(n <= 32);
+	NDS_TOUCH(dst, n); /* NDS-RAPIDO3 */
 	if constexpr (sizeof(void *) == 8) {
 		const uint64_t fill64 = static_cast<uint64_t>(value) * 0x0101010101010101ULL;
 		if (n >= 16) {

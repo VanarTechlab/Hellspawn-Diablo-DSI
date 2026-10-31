@@ -179,6 +179,21 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set_source_files_properties(${_optimize_in_debug_srcs} PROPERTIES COMPILE_OPTIONS "-O2")
 endif()
 
+# NDS-RAPIDO1: en la DSi el dibujo va mucho mas rapido en modo ARM que en Thumb
+if(CMAKE_CXX_COMPILER MATCHES "arm-none-eabi")
+  set_property(SOURCE
+    engine/render/dun_render.cpp
+    engine/render/clx_render.cpp
+    engine/render/scrollrt.cpp
+    engine/render/light_render.cpp
+    engine/render/automap_render.cpp
+    engine/render/primitive_render.cpp
+    engine/render/text_render.cpp
+    automap.cpp
+    lighting.cpp
+    APPEND PROPERTY COMPILE_OPTIONS "-O2" "-marm")
+endif()
+
 # We need to define all the object libraries first
 # because our workaround for transitive dependency support
 # requires targets to exist when calling `target_link_dependencies`
@@ -721,7 +736,8 @@ target_link_dependencies(libdevilutionx_pathfinding PUBLIC
   libdevilutionx_direction
 )
 
-if(SUPPORTS_MPQ OR NOT NONET)
+# NDS-MP2-FIX: en la DSi no hay mpqfs
+if(SUPPORTS_MPQ OR (NOT NONET AND NOT CMAKE_CXX_COMPILER MATCHES "arm-none-eabi"))
   add_devilutionx_object_library(libdevilutionx_pkware_encrypt
     encrypt.cpp
   )
@@ -1004,6 +1020,11 @@ if(NOT NONET)
       dvlnet/protocol_zt.cpp
       dvlnet/zerotier_native.cpp
       dvlnet/zerotier_lwip.cpp)
+  endif()
+  # NDS-MP2: conector "DSi local"
+  if(CMAKE_CXX_COMPILER MATCHES "arm-none-eabi")
+    list(APPEND libdevilutionx_SRCS dvlnet/protocol_nds.cpp)
+    set_property(SOURCE dvlnet/protocol_nds.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "$ENV{BLOCKSDS}/libs/dswifi/include")
   endif()
 endif()
 

@@ -14,6 +14,10 @@
 #ifndef DISABLE_TCP
 #include "dvlnet/tcp_client.h"
 #endif
+#ifdef __NDS__ /* NDS-MP2 */
+#include "dvlnet/base_protocol.h"
+#include "dvlnet/protocol_nds.h"
+#endif
 #endif
 
 namespace devilution::net {
@@ -24,6 +28,12 @@ std::unique_ptr<abstract_net> abstract_net::MakeNet(provider_t provider)
 	return std::make_unique<loopback>();
 #else
 	switch (provider) {
+#ifdef __NDS__ /* NDS-MP2: "DSi local" ocupa el hueco de ZeroTier */
+	case SELCONN_ZT:
+		return std::make_unique<cdwrap>([]() {
+			return std::make_unique<base_protocol<protocol_nds>>();
+		});
+#endif
 #ifndef DISABLE_TCP
 	case SELCONN_TCP:
 		return std::make_unique<cdwrap>([]() {

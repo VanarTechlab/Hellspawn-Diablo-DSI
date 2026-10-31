@@ -7,6 +7,21 @@
 
 #include "engine/render/light_render.hpp"
 #include "utils/attributes.h"
+
+#ifndef NDS_TOUCH /* NDS-RAPIDO3: traer a la cache las lineas de destino antes de escribir */
+#ifdef __NDS__
+static inline __attribute__((always_inline)) void nds_touch_lines(const void *p, unsigned n)
+{
+	uintptr_t a = reinterpret_cast<uintptr_t>(p) & ~static_cast<uintptr_t>(31);
+	const uintptr_t e = reinterpret_cast<uintptr_t>(p) + n - 1;
+	for (; a <= e; a += 32)
+		(void)*reinterpret_cast<volatile const uint8_t *>(a);
+}
+#define NDS_TOUCH(p, n) nds_touch_lines((p), static_cast<unsigned>(n))
+#else
+#define NDS_TOUCH(p, n) ((void)0)
+#endif
+#endif
 #include "utils/palette_blending.hpp"
 
 namespace devilution {
@@ -19,12 +34,14 @@ namespace devilution {
 
 DVL_ALWAYS_INLINE DVL_ATTRIBUTE_HOT void BlitFillDirect(uint8_t *dst, unsigned length, uint8_t color)
 {
+	NDS_TOUCH(dst, length); /* NDS-RAPIDO3 */
 	DVL_ASSUME(length != 0);
 	std::memset(dst, color, length);
 }
 
 DVL_ALWAYS_INLINE DVL_ATTRIBUTE_HOT void BlitPixelsDirect(uint8_t *DVL_RESTRICT dst, const uint8_t *DVL_RESTRICT src, unsigned length)
 {
+	NDS_TOUCH(dst, length); /* NDS-RAPIDO3 */
 	DVL_ASSUME(length != 0);
 	std::memcpy(dst, src, length);
 }
@@ -42,12 +59,14 @@ struct BlitDirect {
 
 inline DVL_NO_INLINE DVL_ATTRIBUTE_HOT void BlitFillWithMap(uint8_t *dst, unsigned length, uint8_t color, const uint8_t *DVL_RESTRICT colorMap)
 {
+	NDS_TOUCH(dst, length); /* NDS-RAPIDO3 */
 	DVL_ASSUME(length != 0);
 	std::memset(dst, colorMap[color], length);
 }
 
 inline DVL_NO_INLINE DVL_ATTRIBUTE_HOT void BlitPixelsWithMap(uint8_t *DVL_RESTRICT dst, const uint8_t *DVL_RESTRICT src, unsigned length, const uint8_t *DVL_RESTRICT colorMap)
 {
+	NDS_TOUCH(dst, length); /* NDS-RAPIDO3 */
 	DVL_ASSUME(length != 0);
 	std::transform(DEVILUTIONX_BLIT_EXECUTION_POLICY src, src + length, dst, [colorMap](uint8_t srcColor) { return colorMap[srcColor]; });
 }
@@ -67,6 +86,7 @@ struct BlitWithMap {
 
 inline DVL_NO_INLINE DVL_ATTRIBUTE_HOT void BlitFillWithLightmap(uint8_t *dst, unsigned length, uint8_t color, const Lightmap &lightmap)
 {
+	NDS_TOUCH(dst, length); /* NDS-RAPIDO3 */
 	DVL_ASSUME(length != 0);
 	const uint8_t *light = lightmap.getLightingAt(dst);
 	std::transform(DEVILUTIONX_BLIT_EXECUTION_POLICY light, light + length, dst, [color, &lightmap](uint8_t lightLevel) {
@@ -76,6 +96,7 @@ inline DVL_NO_INLINE DVL_ATTRIBUTE_HOT void BlitFillWithLightmap(uint8_t *dst, u
 
 inline DVL_NO_INLINE DVL_ATTRIBUTE_HOT void BlitPixelsWithLightmap(uint8_t *DVL_RESTRICT dst, const uint8_t *DVL_RESTRICT src, unsigned length, const Lightmap &lightmap)
 {
+	NDS_TOUCH(dst, length); /* NDS-RAPIDO3 */
 	DVL_ASSUME(length != 0);
 	const uint8_t *light = lightmap.getLightingAt(dst);
 	std::transform(DEVILUTIONX_BLIT_EXECUTION_POLICY src, src + length, light, dst, [&lightmap](uint8_t srcColor, uint8_t lightLevel) {

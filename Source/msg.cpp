@@ -20,7 +20,8 @@
 
 #include <ankerl/unordered_dense.h>
 
-#if !defined(UNPACKED_MPQS) || !defined(UNPACKED_SAVES) || !defined(NONET)
+/* NDS-MP2-FIX2: sin compresion pkware en la DSi */
+#if (!defined(UNPACKED_MPQS) || !defined(UNPACKED_SAVES) || !defined(NONET)) && !defined(__NDS__)
 #define USE_PKWARE
 #include "encrypt.h"
 #endif

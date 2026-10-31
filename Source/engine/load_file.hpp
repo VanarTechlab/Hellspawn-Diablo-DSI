@@ -13,6 +13,10 @@
 #include "utils/static_vector.hpp"
 #include "utils/str_cat.hpp"
 
+#ifdef __NDS__ /* NDS-MEMNOMBRES */
+extern "C" void nds_mem_name(const void *p, const char *name);
+#endif
+
 namespace devilution {
 
 template <typename T>
@@ -111,6 +115,9 @@ std::expected<std::unique_ptr<T[]>, std::string> LoadFileInMemWithStatus(const c
 		*numRead = size / sizeof(T);
 
 	std::unique_ptr<T[]> buf { new T[size / sizeof(T)] };
+#ifdef __NDS__ /* NDS-MEMNOMBRES */
+	nds_mem_name(buf.get(), path);
+#endif
 	if (!handle.read(buf.get(), size)) {
 		return std::unexpected("handle.read failed");
 	}
@@ -181,6 +188,9 @@ struct MultiFileLoader {
 		}
 		outOffsets[files.size()] = static_cast<uint32_t>(totalSize);
 		std::unique_ptr<std::byte[]> buf { new std::byte[totalSize] };
+#ifdef __NDS__ /* NDS-MEMNOMBRES */
+		nds_mem_name(buf.get(), paths.empty() ? "multi" : paths[0].data());
+#endif
 		for (size_t i = 0, j = 0; i < numFiles; ++i) {
 			if (!filterFn(i))
 				continue;

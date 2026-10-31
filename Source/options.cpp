@@ -63,6 +63,9 @@ namespace devilution {
 #ifndef DEFAULT_AUDIO_RESAMPLING_QUALITY
 #define DEFAULT_AUDIO_RESAMPLING_QUALITY 3
 #endif
+#if defined(__NDS__) && !defined(DEFAULT_PER_PIXEL_LIGHTING) /* NDS-RAPIDO3: luz por pixel apagada */
+#define DEFAULT_PER_PIXEL_LIGHTING false
+#endif
 #ifndef DEFAULT_PER_PIXEL_LIGHTING
 #define DEFAULT_PER_PIXEL_LIGHTING true
 #endif
@@ -228,6 +231,9 @@ void LoadOptions()
 			pEntry->LoadFromIni(pCategory->GetKey());
 		}
 	}
+#ifdef __NDS__ /* NDS-RAPIDO3: luz por pixel siempre apagada al arrancar (cuesta mucho en la DSi) */
+	options.Graphics.perPixelLighting.SetValue(false);
+#endif
 
 	ini->getUtf8Buf("Hellfire", "SItem", options.Hellfire.szItem, sizeof(options.Hellfire.szItem));
 	ini->getUtf8Buf("Network", "Bind Address", "0.0.0.0", options.Network.szBindAddress, sizeof(options.Network.szBindAddress));

@@ -21,6 +21,9 @@ struct Corpse {
 	int frame;
 	uint16_t width;
 	uint8_t translationPaletteIndex;
+#ifdef __NDS__ /* NDS-TRN */
+	const uint8_t *ndsTrn = nullptr;
+#endif
 
 	/**
 	 * @brief Returns the sprite list for a given direction.

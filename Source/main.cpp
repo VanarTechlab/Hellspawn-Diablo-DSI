@@ -132,3 +132,43 @@ extern "C" int main(int argc, char **argv)
 	return result;
 }
 #endif
+
+#ifdef __NDS__ /* NDS-MEMTRK: new/delete pasan por malloc/free y anotan al llamador real */
+#include <cstdlib>
+#include <new>
+extern "C" void nds_mem_retag(void *p, unsigned ra);
+void *operator new(std::size_t n)
+{
+	void *p = std::malloc(n != 0 ? n : 1);
+	if (p == nullptr)
+		std::abort();
+	nds_mem_retag(p, reinterpret_cast<unsigned>(__builtin_return_address(0)));
+	return p;
+}
+void *operator new[](std::size_t n)
+{
+	void *p = std::malloc(n != 0 ? n : 1);
+	if (p == nullptr)
+		std::abort();
+	nds_mem_retag(p, reinterpret_cast<unsigned>(__builtin_return_address(0)));
+	return p;
+}
+void *operator new(std::size_t n, const std::nothrow_t &) noexcept
+{
+	void *p = std::malloc(n != 0 ? n : 1);
+	if (p != nullptr)
+		nds_mem_retag(p, reinterpret_cast<unsigned>(__builtin_return_address(0)));
+	return p;
+}
+void *operator new[](std::size_t n, const std::nothrow_t &) noexcept
+{
+	void *p = std::malloc(n != 0 ? n : 1);
+	if (p != nullptr)
+		nds_mem_retag(p, reinterpret_cast<unsigned>(__builtin_return_address(0)));
+	return p;
+}
+void operator delete(void *p) noexcept { std::free(p); }
+void operator delete[](void *p) noexcept { std::free(p); }
+void operator delete(void *p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
+#endif

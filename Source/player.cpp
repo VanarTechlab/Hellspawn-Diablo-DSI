@@ -2187,6 +2187,10 @@ void InitPlayerGFX(Player &player)
 		auto graphic = static_cast<player_graphic>(i);
 		if (graphic == player_graphic::Death)
 			continue;
+#ifdef __NDS__ /* NDS-LAZY: las de lanzar hechizo se cargan al lanzar (NewPlrAnim) */
+		if (graphic == player_graphic::Lightning || graphic == player_graphic::Fire || graphic == player_graphic::Magic)
+			continue;
+#endif
 		LoadPlrGFX(player, graphic);
 	}
 }
@@ -3237,6 +3241,10 @@ void CheckPlrSpell(bool isShiftHeld, SpellID spellID, SpellType spellType)
 void SyncPlrAnim(Player &player)
 {
 	const player_graphic graphic = player.getGraphic();
+#ifdef __NDS__ /* NDS-LAZY */
+	if (!HeadlessMode)
+		LoadPlrGFX(player, graphic);
+#endif
 	if (!HeadlessMode)
 		player.AnimInfo.sprites = player.AnimationData[static_cast<size_t>(graphic)].spritesForDirection(player._pdir);
 }

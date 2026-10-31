@@ -194,6 +194,9 @@ struct CMonster {
 	/** placeflag enum as a flags*/
 	uint8_t placeFlags;
 	int8_t corpseId = 0;
+#ifdef __NDS__ /* NDS-TRN: color del tipo aplicado al dibujar (graficos compartidos) */
+	std::unique_ptr<uint8_t[]> ndsTrn;
+#endif
 
 	const MonsterData &data() const
 	{

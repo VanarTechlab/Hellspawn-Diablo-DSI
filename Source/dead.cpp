@@ -30,6 +30,9 @@ void InitDeadAnimationFromMonster(Corpse &corpse, const CMonster &mon)
 	}
 	corpse.frame = animData.frames - 1;
 	corpse.width = animData.width;
+#ifdef __NDS__ /* NDS-TRN */
+	corpse.ndsTrn = mon.ndsTrn.get();
+#endif
 }
 
 void MoveLightToCorpse(Monster &monster)
@@ -48,6 +51,10 @@ void MoveLightToCorpse(Monster &monster)
 
 void InitCorpses()
 {
+#ifdef __NDS__ /* NDS-TRN */
+	for (Corpse &c : Corpses)
+		c.ndsTrn = nullptr;
+#endif
 	int8_t mtypes[MaxMonsters] = {};
 
 	int8_t nd = 0;
@@ -67,8 +74,12 @@ void InitCorpses()
 
 	nd++; // Unused blood spatter
 
-	if (!HeadlessMode)
+	if (!HeadlessMode) {
+#ifdef __NDS__
+		(void)GetMissileSpriteData(MissileGraphicID::StoneCurseShatter).LoadGFX(); /* NDS-LAZY */
+#endif
 		Corpses[nd].sprites.emplace(*GetMissileSpriteData(MissileGraphicID::StoneCurseShatter).sprites);
+	}
 	Corpses[nd].frame = 11;
 	Corpses[nd].width = 128;
 	Corpses[nd].translationPaletteIndex = 0;

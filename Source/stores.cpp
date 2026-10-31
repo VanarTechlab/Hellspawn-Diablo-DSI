@@ -2104,6 +2104,40 @@ bool NdsStoreTextFullSize()
 {
 	return IsTextFullSize;
 }
+
+/* NDS-TIENDA: detalle de la linea elegida, a tamano real, en una zona de 256x96 */
+void NdsStoreDraw(const Surface &out)
+{
+	const int areaW = 250;
+	const int lineH = 13;
+	const int maxY = out.h() - lineH; /* la ultima fila es para el oro */
+	int y = 2;
+	if (CurrentTextLine >= 0 && CurrentTextLine < NumStoreLines) {
+		for (int l = CurrentTextLine; l < NumStoreLines && l < CurrentTextLine + 4 && y < maxY; l++) {
+			const STextStruct &t = TextLine[l];
+			if (l != CurrentTextLine && (t.isSelectable() || t.isDivider() || t.text.empty()))
+				break;
+			if (t.text.empty())
+				continue;
+			const std::string w = WordWrapString(t.text, areaW);
+			int rows = 1;
+			for (const char c : w)
+				if (c == '\n')
+					rows++;
+			DrawString(out, w, Rectangle { { 3, y }, { areaW, maxY - y } }, { .flags = t.flags });
+			if (l == CurrentTextLine && t._sval > 0) { /* precio en la linea siguiente, a la derecha */
+				y += rows * lineH;
+				if (y < maxY)
+					DrawString(out, FormatInteger(t._sval), Rectangle { { 3, y }, { areaW, lineH } }, { .flags = (t.flags & ~(UiFlags::AlignCenter | UiFlags::AlignRight)) | UiFlags::AlignRight });
+				y += lineH;
+			} else {
+				y += rows * lineH;
+			}
+		}
+	}
+	DrawString(out, FormatRuntime(_("Your gold: {:s}"), FormatInteger(TotalPlayerGold())), Rectangle { { 3, maxY }, { areaW, lineH } },
+	    { .flags = UiFlags::ColorWhitegold | UiFlags::AlignRight });
+}
 #endif
 
 bool StoreAutoPlace(Item &item, bool persistItem)

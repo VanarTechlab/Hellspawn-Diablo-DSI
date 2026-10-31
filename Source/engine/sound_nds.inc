@@ -218,28 +218,32 @@ std::expected<std::unique_ptr<TSnd>, std::string> SoundFileLoadWithStatus(const 
 	}
 	const int bps = w.bits / 8;
 	const uint32_t frames = w.dataLen / static_cast<uint32_t>(bps * w.channels);
-	const uint32_t outBytes = (frames + 3) & ~3U;
+	const uint32_t ndsStep = w.rate >= 22050 ? 2U : 1U; /* NDS-DIETA1: 22 kHz -> 11 kHz */
+	const uint32_t outFrames = frames / ndsStep;
+	const uint32_t outBytes = (outFrames + 3) & ~3U;
 	int8_t *out = static_cast<int8_t *>(std::malloc(outBytes));
 	if (out == nullptr) {
 		std::free(file);
 		return snd;
 	}
 	const uint8_t *src = file + w.dataOff;
-	for (uint32_t i = 0; i < frames; i++) {
+	for (uint32_t i = 0; i < outFrames; i++) {
 		int acc = 0;
-		for (int c = 0; c < w.channels; c++) {
-			const uint8_t *s = src + (i * w.channels + c) * bps;
-			acc += bps == 2 ? static_cast<int16_t>(Le16(s)) >> 8 : static_cast<int>(s[0]) - 128;
+		for (uint32_t k = 0; k < ndsStep; k++) {
+			for (int c = 0; c < w.channels; c++) {
+				const uint8_t *s = src + ((i * ndsStep + k) * w.channels + c) * bps;
+				acc += bps == 2 ? static_cast<int16_t>(Le16(s)) >> 8 : static_cast<int>(s[0]) - 128;
+			}
 		}
-		out[i] = static_cast<int8_t>(acc / w.channels);
+		out[i] = static_cast<int8_t>(acc / (w.channels * static_cast<int>(ndsStep)));
 	}
-	for (uint32_t i = frames; i < outBytes; i++)
+	for (uint32_t i = outFrames; i < outBytes; i++)
 		out[i] = 0;
 	std::free(file);
 	snd->DSB.pcm = out;
 	snd->DSB.bytes = static_cast<int>(outBytes);
 	snd->DSB.is16 = 0;
-	snd->DSB.freq = w.rate;
+	snd->DSB.freq = static_cast<int>(w.rate / ndsStep);
 	snd->DSB.lengthMs = static_cast<int>(static_cast<uint64_t>(frames) * 1000 / static_cast<uint32_t>(w.rate));
 	return snd;
 }

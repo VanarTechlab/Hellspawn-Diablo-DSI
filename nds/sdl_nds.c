@@ -40,9 +40,14 @@ static void nds_lua_probe(const char *what);
 #include <stdlib.h>
 #include <string.h>
 
-#define SCREEN_W 256
+/* NDS-ZOOM: tamano del mundo que dibuja el motor (se reduce a 256x192).
+   256x192 = sin reducir; 288x216 = un poco mas de vista; 320x240 = bastante mas */
+#define WORLD_W 288
+#define WORLD_H 216
+#define LCD_W 256
+#define SCREEN_W WORLD_W
 /* pantalla logica de 256x320: filas 0-191 en la tactil (mundo), 192-319 en la de arriba (panel) */
-#define SCREEN_H 320
+#define SCREEN_H (WORLD_H + 128)
 #define LCD_H 192
 #define TOP_ROWS (SCREEN_H - LCD_H)
 #define SCREEN_BYTES (SCREEN_W * SCREEN_H)
@@ -295,8 +300,15 @@ static void irq_puts(int x, int y, const char *t)
         consolePrintChar(*t++);
 }
 
+/* NDS-RAPIDO4: pagina de VRAM pendiente de mostrar (0 o 1), -1 = nada */
+static volatile int vpage_show = -1;
+
 static void nds_vblank(void)
 {
+    if (vpage_show >= 0) { /* NDS-RAPIDO4: cambiar de pagina fuera de la zona visible */
+        REG_BG3CNT = (u16)((REG_BG3CNT & ~(31 << 8)) | ((vpage_show ? 4 : 0) << 8));
+        vpage_show = -1;
+    }
     if (heap_halt)
         return;
     vbl_count++;
@@ -426,6 +438,7 @@ static void nds_exception(void)
     }
 }
 
+/* NDS-MEMTRK-FIX: funciones viejas renombradas */
 /* ---------- depurador de monton (requiere -Wl,--wrap=malloc/free/calloc/realloc) ---------- */
 extern void *__real_malloc(size_t n);
 extern void __real_free(void *p);
@@ -672,12 +685,12 @@ static void hb_release(HBlk *b, unsigned lr)
         hb_evict();
 }
 
-void *__wrap_malloc(size_t n)
+void *hb_old_wrap_malloc(size_t n)
 {
     return hb_alloc(n, (unsigned)__builtin_return_address(0));
 }
 
-void *__wrap_calloc(size_t a, size_t n)
+void *hb_old_wrap_calloc(size_t a, size_t n)
 {
     void *p;
     size_t t;
@@ -690,7 +703,7 @@ void *__wrap_calloc(size_t a, size_t n)
     return p;
 }
 
-void __wrap_free(void *p)
+void hb_old_wrap_free(void *p)
 {
     HBlk *b;
     unsigned lr = (unsigned)__builtin_return_address(0);
@@ -707,7 +720,7 @@ void __wrap_free(void *p)
     hb_release(b, lr);
 }
 
-void *__wrap_realloc(void *p, size_t n)
+void *hb_old_wrap_realloc(void *p, size_t n)
 {
     HBlk *b;
     void *q;
@@ -719,7 +732,7 @@ void *__wrap_realloc(void *p, size_t n)
     if (!hb_ptr_ok(b) || b->magic1 != HB_MAGIC1 || b->magic2 != HB_MAGIC2)
         return __real_realloc(p, n);
     if (n == 0) {
-        __wrap_free(p);
+        hb_old_wrap_free(p);
         return NULL;
     }
     if (b->state == 2)
@@ -1037,12 +1050,17 @@ Uint32 SDL_GetTicks(void)
     return tick_hi + now;
 }
 
+/* NDS-MP4: la red local (protocol_nds.cpp) se atiende desde aqui y desde SDL_Flip */
+void (*nds_net_hook)(void) = 0;
+
 void SDL_Delay(Uint32 ms)
 {
     nds_lua_light(6, (unsigned)__builtin_return_address(0));
     hb_delay++;
     hb_last = "Delay";
     Uint32 end = SDL_GetTicks() + ms;
+    if (nds_net_hook) /* NDS-MP4 */
+        nds_net_hook();
     do {
         thrd_yield();
     } while ((Sint32)(end - SDL_GetTicks()) > 0);
@@ -1075,7 +1093,7 @@ static void *guard_alloc(size_t sz, int w, int h, void **rawout)
 {
     int i;
     unsigned char *raw;
-    if (sz >= GUARD_MIN) {
+    if (NDS_DEBUG && sz >= GUARD_MIN) { /* NDS-MEMNOMBRES: sin guardas en la version normal */
         for (i = 0; i < GUARD_MAX; i++) {
             if (guard_tab[i].raw)
                 continue;
@@ -1138,6 +1156,7 @@ static void guard_release(void *raw)
     }
 }
 
+void nds_mem_name(const void *p, const char *name); /* NDS-MEMNOMBRES */
 static SDL_Surface *new_surface8(int w, int h, int pitch, void *pixels)
 {
     NdsSurface *n = (NdsSurface *)calloc(1, sizeof(NdsSurface));
@@ -1155,6 +1174,11 @@ static SDL_Surface *new_surface8(int w, int h, int pitch, void *pixels)
             return NULL;
         }
         n->own_pixels = raw;
+        { /* NDS-MEMNOMBRES */
+            char nm[32];
+            snprintf(nm, sizeof nm, "superficie %dx%d", w, h);
+            nds_mem_name(raw, nm);
+        }
     }
     n->p.ncolors = 256;
     n->p.colors = n->c;
@@ -1463,6 +1487,10 @@ int SDL_SetPalette(SDL_Surface *s, int flags, SDL_Color *colors, int first, int 
     return 1;
 }
 
+/* NDS-RAPIDO1: composicion en modo ARM con -O2 (hasta el medidor) */
+#pragma GCC push_options
+#pragma GCC optimize("O2")
+#pragma GCC target("arm")
 /* ---------- paneles del juego reducidos en la pantalla tactil ---------- */
 #define UI_X0 448
 #define UI_PW 174 /* ancho del panel 320 reducido 6/11 */
@@ -1488,7 +1516,8 @@ static inline Uint8 sharp_pick(const unsigned char *s, int pitch, int bw, int bh
     }
     return best;
 }
-static Uint8 comp_buf[SCREEN_W * LCD_H] __attribute__((aligned(32)));
+static Uint8 comp_buf[LCD_W * LCD_H] __attribute__((aligned(32)));
+static Uint8 *vback; /* NDS-RAPIDO4: pagina de VRAM donde se escribe el mundo (modo 0) */
 
 void nds_ui_frame(const unsigned char *pixels, int pitch, int mode)
 {
@@ -1512,28 +1541,44 @@ static void nds_ui_compose(void)
     if (ui_mode == 5) { /* video: escalar el cuadro entero a 256x192 */
         for (y = 0; y < LCD_H; y++) {
             const unsigned char *s = ui_pix + (y * ui_h / LCD_H) * ui_pitch;
-            Uint8 *d = comp_buf + y * SCREEN_W;
-            for (x = 0; x < SCREEN_W; x++)
-                d[x] = s[x * ui_w / SCREEN_W];
+            Uint8 *d = comp_buf + y * LCD_W;
+            for (x = 0; x < LCD_W; x++)
+                d[x] = s[x * ui_w / LCD_W];
         }
         return;
     }
-    memcpy(comp_buf, video_pixels, SCREEN_W * LCD_H);
+    { /* NDS-ZOOM: mundo WORLD_W x WORLD_H reducido a 256x192 */
+        static u16 zx[LCD_W], zy[LCD_H];
+        static int zinit;
+        if (!zinit) {
+            for (x = 0; x < LCD_W; x++)
+                zx[x] = (u16)(x * WORLD_W / LCD_W);
+            for (y = 0; y < LCD_H; y++)
+                zy[y] = (u16)(y * WORLD_H / LCD_H);
+            zinit = 1;
+        }
+        for (y = 0; y < LCD_H; y++) { /* NDS-RAPIDO2: 4 pixeles por escritura */
+            const Uint8 *sr = video_pixels + zy[y] * SCREEN_W;
+            u32 *d = (u32 *)((ui_mode == 0 && vback ? vback : comp_buf) + y * LCD_W); /* NDS-RAPIDO4 */
+            for (x = 0; x < LCD_W; x += 4)
+                *d++ = (u32)sr[zx[x]] | ((u32)sr[zx[x + 1]] << 8) | ((u32)sr[zx[x + 2]] << 16) | ((u32)sr[zx[x + 3]] << 24);
+        }
+    }
     if (ui_mode >= 3) {
         for (y = 0; y < LCD_H; y++) {
             const unsigned char *s = ui_pix + (y * 5 / 2) * ui_pitch;
-            Uint8 *d = comp_buf + y * SCREEN_W;
+            Uint8 *d = comp_buf + y * LCD_W;
             if (ui_mode == 3 && y * 5 / 2 + 2 >= 339) /* NDS-HUD4: ni panel ni parte alta de los frascos */
                 continue;
-            for (x = 0; x < SCREEN_W; x++)
+            for (x = 0; x < LCD_W; x++)
                 d[x] = NDS_UI_SHARP ? sharp_pick(s + x * 5 / 2, ui_pitch, 2, 2) : s[x * 5 / 2];
         }
-    } else {
-        int dx0 = ui_mode == 1 ? 0 : SCREEN_W - UI_PW;
+    } else if (ui_mode == 1 || ui_mode == 2) {
+        int dx0 = ui_mode == 1 ? 0 : LCD_W - UI_PW;
         int sx0 = ui_mode == 1 ? 0 : 320;
         for (y = 0; y < LCD_H; y++) {
             const unsigned char *s = ui_pix + (y * 11 / 6) * ui_pitch + sx0;
-            Uint8 *d = comp_buf + y * SCREEN_W + dx0;
+            Uint8 *d = comp_buf + y * LCD_W + dx0;
             for (x = 0; x < UI_PW; x++)
                 d[x] = NDS_UI_SHARP ? sharp_pick(s + x * 11 / 6, ui_pitch, 2, 2) : s[x * 11 / 6];
         }
@@ -1549,9 +1594,12 @@ static void nds_touch_map(u16 *px, u16 *py)
     } else if (ui_mode == 1 && x < UI_PW) {
         x = UI_X0 + x * 11 / 6;
         y = y * 11 / 6;
-    } else if (ui_mode == 2 && x >= SCREEN_W - UI_PW) {
-        x = UI_X0 + 320 + (x - (SCREEN_W - UI_PW)) * 11 / 6;
+    } else if (ui_mode == 2 && x >= LCD_W - UI_PW) {
+        x = UI_X0 + 320 + (x - (LCD_W - UI_PW)) * 11 / 6;
         y = y * 11 / 6;
+    } else { /* NDS-ZOOM: toque sobre el mundo */
+        x = x * WORLD_W / LCD_W;
+        y = y * WORLD_H / LCD_H;
     }
     *px = (u16)x;
     *py = (u16)y;
@@ -1575,7 +1623,7 @@ static void nds_touch_map(u16 *px, u16 *py)
 #define HUD_INFO_Y 4
 static const unsigned char *hud_pan;
 static int hud_pitch, hud_xp;
-static Uint8 top_buf[SCREEN_W * LCD_H] __attribute__((aligned(32)));
+static Uint8 top_buf[LCD_W * LCD_H] __attribute__((aligned(32)));
 static Uint8 flask_tmp[HUD_FL_SW * HUD_FL_SH];
 
 void nds_hud_frame(const unsigned char *panel, int pitch, int xp_permille)
@@ -1585,52 +1633,79 @@ void nds_hud_frame(const unsigned char *panel, int pitch, int xp_permille)
     hud_xp = xp_permille < 0 ? 0 : (xp_permille > 1000 ? 1000 : xp_permille);
 }
 
+/* NDS-RAPIDO7: traer a la cache las lineas de destino antes de escribir bytes en ellas */
+static inline void hud_touch(const void *p, unsigned n)
+{
+    unsigned a = (unsigned)p & ~31u;
+    const unsigned e = (unsigned)p + n - 1;
+    for (; a <= e; a += 32)
+        (void)*(volatile const Uint8 *)a;
+}
+
 static void hud_blit(const unsigned char *src, int spitch, int sw, int sh, int dx, int dy, int dw, int dh)
 {
-    int x, y;
+    int x, y; /* NDS-RAPIDO1: paso en coma fija, sin dividir en cada pixel */
+    const unsigned stx = ((unsigned)sw << 16) / (unsigned)dw;
     for (y = 0; y < dh; y++) {
         const unsigned char *s = src + (y * sh / dh) * spitch;
-        Uint8 *d = top_buf + (dy + y) * SCREEN_W + dx;
-        for (x = 0; x < dw; x++)
-            d[x] = s[x * sw / dw];
+        Uint8 *d = top_buf + (dy + y) * LCD_W + dx;
+        unsigned fx = 0;
+        hud_touch(d, (unsigned)dw); /* NDS-RAPIDO7 */
+        for (x = 0; x < dw; x++, fx += stx)
+            d[x] = s[fx >> 16];
     }
 }
 
 static void hud_flask(int px, int dx)
 {
-    int x, y;
-    for (y = 0; y < HUD_FL_SH; y++) { /* fila 0 = 13 filas por encima del panel */
-        const unsigned char *src = hud_pan + (y - 13) * hud_pitch + px + HUD_FL_SX;
-        Uint8 *d = flask_tmp + y * HUD_FL_SW;
-        for (x = 0; x < HUD_FL_SW; x++) {
-            int fx = x + HUD_FL_SX; /* columna relativa al frasco */
-            d[x] = (y < 13 && (fx < 11 || fx >= 73)) ? 0 : src[x];
+    int x, y; /* NDS-RAPIDO7: reduccion directa, sin bufer intermedio (mismo muestreo que antes) */
+    const int dy = HUD_XP_Y + HUD_XP_H - HUD_FLASK_H;
+    const unsigned stx = ((unsigned)HUD_FL_SW << 16) / (unsigned)HUD_FLASK_W;
+    (void)flask_tmp;
+    for (y = 0; y < HUD_FLASK_H; y++) {
+        const int sy = y * HUD_FL_SH / HUD_FLASK_H; /* fila 0 = 13 filas por encima del panel */
+        const unsigned char *src = hud_pan + (sy - 13) * hud_pitch + px + HUD_FL_SX;
+        Uint8 *d = top_buf + (dy + y) * LCD_W + dx;
+        unsigned fx = 0;
+        hud_touch(d, HUD_FLASK_W);
+        for (x = 0; x < HUD_FLASK_W; x++, fx += stx) {
+            const int sx = (int)(fx >> 16);
+            const int rel = sx + HUD_FL_SX; /* columna relativa al frasco */
+            d[x] = (sy < 13 && (rel < 11 || rel >= 73)) ? 0 : src[sx];
         }
     }
-    hud_blit(flask_tmp, HUD_FL_SW, HUD_FL_SW, HUD_FL_SH, dx, HUD_XP_Y + HUD_XP_H - HUD_FLASK_H, HUD_FLASK_W, HUD_FLASK_H);
 }
 
 static void nds_hud_compose(void)
 {
     int x, y, white = 240, dark = 240;
-    memset(top_buf, 0, sizeof top_buf);
+    { /* NDS-RAPIDO5: limpiar solo la primera vez (las zonas usadas se sobrescriben siempre) */
+        static int top_clean;
+        if (!top_clean) {
+            memset(top_buf, 0, sizeof top_buf);
+            top_clean = 1;
+        }
+    }
+    while (dmaBusy(2)) /* NDS-RAPIDO5: esperar a que termine la copia anterior */
+        ;
     /* NDS-HUD3: minimapa arriba (256x96 de la esquina de la superficie de interfaz) */
     {
         const unsigned char *map = hud_pan - 352 * hud_pitch - 448;
         for (y = 0; y < 96; y++)
-            memcpy(top_buf + y * SCREEN_W, map + y * hud_pitch, SCREEN_W);
+            memcpy(top_buf + y * LCD_W, map + y * hud_pitch, LCD_W);
     }
     /* texto de informacion: centro 203x64 del cuadro del panel (219,46) a 152x64 entre los frascos */
     for (y = 0; y < 64; y++) {
         const unsigned char *s = hud_pan + (46 + y) * hud_pitch + 219;
-        Uint8 *d = top_buf + (HUD_XP_Y + HUD_XP_H - HUD_FLASK_H - 21 + y) * SCREEN_W + HUD_BELT_X;
+        Uint8 *d = top_buf + (HUD_XP_Y + HUD_XP_H - HUD_FLASK_H - 21 + y) * LCD_W + HUD_BELT_X;
+        hud_touch(d, HUD_BELT_W); /* NDS-RAPIDO7 */
         for (x = 0; x < HUD_BELT_W; x++) {
             Uint8 a = s[x * 4 / 3], b = s[x * 4 / 3 + 1];
             d[x] = pal_lum[b] > pal_lum[a] ? b : a;
         }
     }
     hud_flask(96, 0);                          /* vida a la izquierda */
-    hud_flask(464, SCREEN_W - HUD_FLASK_W);    /* mana a la derecha */
+    hud_flask(464, LCD_W - HUD_FLASK_W);    /* mana a la derecha */
     /* cinturon: 232x29 del panel (205,5) */
     hud_blit(hud_pan + 5 * hud_pitch + 205, hud_pitch, 232, 29, HUD_BELT_X, HUD_BELT_Y, HUD_BELT_W, HUD_BELT_H);
     /* barra de experiencia: el color mas claro y el mas oscuro de los grises de la interfaz (240-255) */
@@ -1643,11 +1718,389 @@ static void nds_hud_compose(void)
     {
         int fill = HUD_BELT_W * hud_xp / 1000;
         for (y = 0; y < HUD_XP_H; y++) {
-            Uint8 *d = top_buf + (HUD_XP_Y + y) * SCREEN_W + HUD_BELT_X;
+            Uint8 *d = top_buf + (HUD_XP_Y + y) * LCD_W + HUD_BELT_X;
+            hud_touch(d, HUD_BELT_W); /* NDS-RAPIDO7 */
             for (x = 0; x < HUD_BELT_W; x++)
                 d[x] = (Uint8)(x < fill ? white : dark);
         }
     }
+}
+
+#pragma GCC pop_options /* NDS-RAPIDO1 */
+
+#include <malloc.h> /* NDS-MEM */
+/* ---------- NDS-MEMTRK: rastreador de memoria ---------- */
+#define NDS_MEMTRACK 0 /* 0 = sin rastreo (solo pasa las llamadas)  NDS-MP12: apagado */
+void *__real_malloc(size_t n);
+void __real_free(void *p);
+void *__real_realloc(void *p, size_t n);
+void *__real_calloc(size_t a, size_t b);
+#define MT_MAGIC 0xD1AB10C5u
+#define MT_N 1024
+static struct { unsigned ra, bytes, count; } mt_b[MT_N];
+static unsigned mt_total, mt_blocks, mt_lost;
+
+static int mt_slot(unsigned ra)
+{
+    unsigned h = ((ra >> 1) * 2654435761u) >> 22, i;
+    for (i = 0; i < MT_N; i++) {
+        unsigned k = (h + i) & (MT_N - 1);
+        if (mt_b[k].ra == ra)
+            return (int)k;
+        if (mt_b[k].ra == 0) {
+            mt_b[k].ra = ra;
+            return (int)k;
+        }
+    }
+    return -1;
+}
+static void mt_add(unsigned ra, unsigned n, int sign)
+{
+    int k = mt_slot(ra);
+    if (k < 0) {
+        mt_lost += sign > 0 ? n : (unsigned)-(int)n;
+        return;
+    }
+    if (sign > 0) {
+        mt_b[k].bytes += n;
+        mt_b[k].count++;
+        mt_total += n;
+        mt_blocks++;
+    } else {
+        mt_b[k].bytes -= n;
+        mt_b[k].count--;
+        mt_total -= n;
+        mt_blocks--;
+    }
+}
+static u32 *mt_hdr(void *p)
+{
+    u32 *h = (u32 *)p - 4;
+    return (h[2] == MT_MAGIC && h[3] == ~h[1]) ? h : NULL;
+}
+static void *mt_new(size_t n, unsigned ra)
+{
+    u32 *h = (u32 *)__real_malloc(n + 16);
+    if (!h)
+        return NULL;
+    h[0] = ra;
+    h[1] = (u32)n;
+    h[2] = MT_MAGIC;
+    h[3] = ~(u32)n;
+    mt_add(ra, (unsigned)n, 1);
+    return h + 4;
+}
+/* NDS-MEMNOMBRES: nombre de los bloques grandes (archivos cargados, superficies) */
+#define MN_N 160
+static struct { const void *p; char name[36]; } mn_t[MN_N];
+void nds_mem_name(const void *p, const char *name)
+{
+    u32 *h;
+    int i, k = -1;
+    size_t L;
+    if (!NDS_MEMTRACK || !p || !name)
+        return;
+    h = mt_hdr((void *)p);
+    if (!h || h[1] < 8192u)
+        return;
+    for (i = 0; i < MN_N; i++) {
+        if (mn_t[i].p == p) {
+            k = i;
+            break;
+        }
+        if (k < 0 && !mn_t[i].p)
+            k = i;
+    }
+    if (k < 0)
+        return;
+    L = strlen(name);
+    if (L > sizeof mn_t[k].name - 1)
+        name += L - (sizeof mn_t[k].name - 1); /* el final de la ruta es lo que identifica */
+    strncpy(mn_t[k].name, name, sizeof mn_t[k].name - 1);
+    mn_t[k].name[sizeof mn_t[k].name - 1] = 0;
+    mn_t[k].p = p;
+}
+static void mn_forget(const void *p)
+{
+    int i;
+    for (i = 0; i < MN_N; i++)
+        if (mn_t[i].p == p)
+            mn_t[i].p = NULL;
+}
+
+void *__wrap_malloc(size_t n)
+{
+#if NDS_MEMTRACK
+    return mt_new(n, (unsigned)__builtin_return_address(0));
+#else
+    return __real_malloc(n);
+#endif
+}
+void __wrap_free(void *p)
+{
+    u32 *h;
+    if (!p)
+        return;
+    h = NDS_MEMTRACK ? mt_hdr(p) : NULL;
+    if (h) {
+        if (h[1] >= 8192u)
+            mn_forget(p); /* NDS-MEMNOMBRES */
+        mt_add(h[0], h[1], -1);
+        h[2] = 0;
+        __real_free(h);
+    } else
+        __real_free(p);
+}
+void *__wrap_realloc(void *p, size_t n)
+{
+    unsigned ra = (unsigned)__builtin_return_address(0);
+    u32 *h, *nh;
+    unsigned ora, on;
+    if (!NDS_MEMTRACK)
+        return __real_realloc(p, n);
+    if (!p)
+        return mt_new(n, ra);
+    h = mt_hdr(p);
+    if (!h)
+        return __real_realloc(p, n);
+    if (n == 0) {
+        __wrap_free(p);
+        return NULL;
+    }
+    ora = h[0];
+    on = h[1];
+    if (on >= 8192u)
+        mn_forget(p); /* NDS-MEMNOMBRES */
+    nh = (u32 *)__real_realloc(h, n + 16);
+    if (!nh)
+        return NULL;
+    mt_add(ora, on, -1);
+    nh[0] = ra;
+    nh[1] = (u32)n;
+    nh[2] = MT_MAGIC;
+    nh[3] = ~(u32)n;
+    mt_add(ra, (unsigned)n, 1);
+    return nh + 4;
+}
+void *__wrap_calloc(size_t a, size_t b)
+{
+    size_t n = a * b;
+    void *p;
+    if (b != 0 && n / b != a)
+        return NULL;
+    p = NDS_MEMTRACK ? mt_new(n, (unsigned)__builtin_return_address(0)) : __real_malloc(n);
+    if (p)
+        memset(p, 0, n);
+    return p;
+}
+void nds_mem_retag(void *p, unsigned ra) /* llamado desde operator new */
+{
+    u32 *h = p ? mt_hdr(p) : NULL;
+    if (!h)
+        return;
+    mt_add(h[0], h[1], -1);
+    h[0] = ra;
+    mt_add(ra, h[1], 1);
+}
+
+static void mt_write(const char *path)
+{
+    enum { TOP = 40 };
+    unsigned idx[TOP], n = 0, i, j;
+    struct mallinfo mi = mallinfo();
+    const unsigned tot = mt_total, blk = mt_blocks, lost = mt_lost;
+    FILE *f;
+    for (i = 0; i < MT_N; i++) { /* los TOP mayores (seleccion simple) */
+        if (!mt_b[i].ra || !mt_b[i].bytes)
+            continue;
+        if (n < TOP)
+            idx[n++] = i;
+        else {
+            unsigned m = 0;
+            for (j = 1; j < TOP; j++)
+                if (mt_b[idx[j]].bytes < mt_b[idx[m]].bytes)
+                    m = j;
+            if (mt_b[i].bytes > mt_b[idx[m]].bytes)
+                idx[m] = i;
+        }
+    }
+    for (i = 0; i < n; i++) /* ordenar de mayor a menor */
+        for (j = i + 1; j < n; j++)
+            if (mt_b[idx[j]].bytes > mt_b[idx[i]].bytes) {
+                unsigned t = idx[i];
+                idx[i] = idx[j];
+                idx[j] = t;
+            }
+    {
+        unsigned kb[TOP], cnt[TOP], ra[TOP];
+        for (i = 0; i < n; i++) { /* copiar antes de abrir el archivo (fopen tambien reserva) */
+            kb[i] = mt_b[idx[i]].bytes / 1024u;
+            cnt[i] = mt_b[idx[i]].count;
+            ra[i] = mt_b[idx[i]].ra;
+        }
+        enum { NTOP = 40 };
+        unsigned nkb[NTOP], nn = 0;
+        char nname[NTOP][36];
+        for (i = 0; i < MN_N; i++) { /* NDS-MEMNOMBRES: los bloques con nombre, de mayor a menor */
+            u32 *hh = mn_t[i].p ? mt_hdr((void *)mn_t[i].p) : NULL;
+            unsigned kbv, pos;
+            if (!hh)
+                continue;
+            kbv = hh[1] / 1024u;
+            for (pos = 0; pos < nn && nkb[pos] >= kbv; pos++) { }
+            if (pos >= NTOP)
+                continue;
+            if (nn < NTOP)
+                nn++;
+            for (j = nn - 1; j > pos; j--) {
+                nkb[j] = nkb[j - 1];
+                memcpy(nname[j], nname[j - 1], 36);
+            }
+            nkb[pos] = kbv;
+            memcpy(nname[pos], mn_t[i].name, 36);
+        }
+        f = fopen(path, "w");
+        if (!f)
+            return;
+        fprintf(f, "usado %u KB (mallinfo)  rastreado %u KB en %u bloques  sin tabla %u KB\n",
+            (unsigned)(mi.uordblks / 1024), tot / 1024u, blk, lost / 1024u);
+        fprintf(f, "KB      bloques  direccion\n");
+        for (i = 0; i < n; i++)
+            fprintf(f, "%6u  %7u  0x%08x\n", kb[i], cnt[i], ra[i]);
+        fprintf(f, "\nArchivos y superficies (KB nombre):\n");
+        for (i = 0; i < nn; i++)
+            fprintf(f, "%6u  %s\n", nkb[i], nname[i]);
+        fclose(f);
+    }
+}
+static void nds_mem_tick(void)
+{
+    static Uint32 last;
+    static unsigned peak;
+    static int in_game;
+    const Uint32 now = SDL_GetTicks();
+    if (!NDS_MEMTRACK)
+        return;
+    if (hud_pan)
+        in_game = 1;
+    if (in_game && mt_total > peak + 256u * 1024u) {
+        peak = mt_total;
+        mt_write("sd:/devilutionx/memoria_pico.txt");
+    }
+    if (hud_pan && ui_mode < 4 && now - last >= 10000u) { /* NDS-MEMNOMBRES: solo en partida */
+        last = now;
+        mt_write("sd:/devilutionx/memoria.txt");
+    }
+}
+/* ---------- medidor de rendimiento (NDS-PROF) ---------- */
+/* 0 logica, 1 mundo (DrawGame), 2 vista (DrawView), 3 minimapa, 4 dibujo total, 5 flip */
+static unsigned prof_sum[11], prof_cnt[11], prof_last;
+static unsigned prof_mon_total, prof_mon_run; /* NDS-RAPIDO6: monstruos del nivel / procesados */
+void nds_prof_mon(unsigned total, unsigned run)
+{
+    prof_mon_total = total;
+    prof_mon_run = run;
+} /* NDS-RAPIDO5: 6-10 partes de la logica */
+static char prof_txt[7][40] = { "midiendo...", "", "" }; /* NDS-RAPIDO2: 3 medidas + 4 de diagnostico */
+
+/* NDS-RAPIDO2: velocidad de la memoria principal y configuracion de cache del ARM9 (CP15) */
+unsigned nds_usec(void);
+static u32 diag_buf[8192]; /* 32 KB en memoria principal */
+__attribute__((target("arm"), noinline)) static void nds_diag(void)
+{
+    volatile Uint8 *b8 = (volatile Uint8 *)diag_buf;
+    volatile u32 *b32 = (volatile u32 *)diag_buf;
+    unsigned t0, t1, t2, t3, t4, sum = 0;
+    u32 c1, c2, c3, r[8];
+    int i;
+    t0 = nds_usec();
+    for (i = 0; i < 32768; i++) b8[i] = (Uint8)i;
+    t1 = nds_usec();
+    for (i = 0; i < 8192; i++) b32[i] = (u32)i;
+    t2 = nds_usec();
+    for (i = 0; i < 32768; i++) sum += b8[i];
+    t3 = nds_usec();
+    for (i = 0; i < 32768; i++) b8[i] = (Uint8)(b8[i] + 1); /* leer y luego escribir: linea ya en cache */
+    t4 = nds_usec();
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 0" : "=r"(c1));
+    __asm__ volatile("mrc p15, 0, %0, c2, c0, 0" : "=r"(c2));
+    __asm__ volatile("mrc p15, 0, %0, c3, c0, 0" : "=r"(c3));
+    __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(r[0]));
+    __asm__ volatile("mrc p15, 0, %0, c6, c1, 0" : "=r"(r[1]));
+    __asm__ volatile("mrc p15, 0, %0, c6, c2, 0" : "=r"(r[2]));
+    __asm__ volatile("mrc p15, 0, %0, c6, c3, 0" : "=r"(r[3]));
+    __asm__ volatile("mrc p15, 0, %0, c6, c4, 0" : "=r"(r[4]));
+    __asm__ volatile("mrc p15, 0, %0, c6, c5, 0" : "=r"(r[5]));
+    __asm__ volatile("mrc p15, 0, %0, c6, c6, 0" : "=r"(r[6]));
+    __asm__ volatile("mrc p15, 0, %0, c6, c7, 0" : "=r"(r[7]));
+    snprintf(prof_txt[3], 40, "b%u w%u r%u rw%u %u", t1 - t0, t2 - t1, t3 - t2, t4 - t3, sum & 7);
+    snprintf(prof_txt[4], 40, "c1 %lx c2 %lx c3 %lx", (unsigned long)c1, (unsigned long)c2, (unsigned long)c3);
+    snprintf(prof_txt[5], 40, "%03lx/%lx %03lx/%lx %03lx/%lx %03lx/%lx",
+        (unsigned long)(r[0] >> 20), (unsigned long)(r[0] & 63), (unsigned long)(r[1] >> 20), (unsigned long)(r[1] & 63),
+        (unsigned long)(r[2] >> 20), (unsigned long)(r[2] & 63), (unsigned long)(r[3] >> 20), (unsigned long)(r[3] & 63));
+    snprintf(prof_txt[6], 40, "%03lx/%lx %03lx/%lx %03lx/%lx %03lx/%lx",
+        (unsigned long)(r[4] >> 20), (unsigned long)(r[4] & 63), (unsigned long)(r[5] >> 20), (unsigned long)(r[5] & 63),
+        (unsigned long)(r[6] >> 20), (unsigned long)(r[6] & 63), (unsigned long)(r[7] >> 20), (unsigned long)(r[7] & 63));
+}
+
+unsigned nds_usec(void)
+{
+    u16 a, b, c;
+    do {
+        a = TIMER_DATA(1);
+        b = TIMER_DATA(0);
+        c = TIMER_DATA(1);
+    } while (a != c);
+    return (unsigned)a * 1000u + (unsigned)(u16)(b - (u16)TIMER_FREQ_64(1000)) * 1000u / 523u;
+}
+
+void nds_prof_add(int which, unsigned us)
+{
+    unsigned now;
+    if (which < 0 || which > 10 || us > 1000000u)
+        return;
+    prof_sum[which] += us;
+    prof_cnt[which]++;
+    if (which != 4)
+        return;
+    now = nds_usec();
+    if ((unsigned)(now - prof_last) < 1000000u && prof_last != 0)
+        return;
+    if ((unsigned)(now - prof_last) < 3000000u && prof_last != 0) {
+#define PMS(i) (prof_cnt[i] ? prof_sum[i] / prof_cnt[i] / 100u : 0u)
+        unsigned fr = prof_cnt[4];
+        static int diag_done; /* NDS-RAPIDO2 */
+        if (!diag_done) {
+            diag_done = 1;
+            nds_diag();
+        }
+        snprintf(prof_txt[0], sizeof prof_txt[0], "FPS %u  logica %u/s %u.%ums", fr, prof_cnt[0], PMS(0) / 10, PMS(0) % 10);
+        snprintf(prof_txt[1], sizeof prof_txt[1], "mundo %u vista %u mapa %u", PMS(1) / 10, PMS(2) / 10, PMS(3) / 10); /* NDS-RAPIDO1 */
+        { /* NDS-MEM: memoria del monton usada ahora / maximo visto (MB) */
+            static unsigned mem_peak;
+            const unsigned mem_used = (unsigned)(mallinfo().uordblks / 1024u);
+            if (mem_used > mem_peak)
+                mem_peak = mem_used;
+            snprintf(prof_txt[2], sizeof prof_txt[2], "dibujo %u flip %u m%u.%u/%u.%uM", PMS(4) / 10, PMS(5) / 10,
+                mem_used / 1024u, (mem_used % 1024u) * 10u / 1024u, mem_peak / 1024u, (mem_peak % 1024u) * 10u / 1024u);
+        }
+        snprintf(prof_txt[3], sizeof prof_txt[3], "j%u m%u o%u l%u v%u n%u/%u", PMS(6), PMS(7), PMS(8), PMS(9), PMS(10),
+            prof_mon_run, prof_mon_total); /* NDS-RAPIDO5 + RAPIDO6 */
+        {
+            extern int nds_wifi_ok; /* NDS-MP1 */
+            size_t L = strlen(prof_txt[3]);
+            snprintf(prof_txt[3] + L, sizeof prof_txt[3] - L, " w%d", nds_wifi_ok);
+        }
+#undef PMS
+    }
+    memset(prof_sum, 0, sizeof prof_sum);
+    memset(prof_cnt, 0, sizeof prof_cnt);
+    prof_last = now;
+}
+
+const char *nds_prof_line(int n)
+{
+    return (n >= 0 && n < 7) ? prof_txt[n] : ""; /* NDS-RAPIDO2 */
 }
 
 int SDL_Flip(SDL_Surface *s)
@@ -1661,25 +2114,45 @@ int SDL_Flip(SDL_Surface *s)
     (void)s;
     if (!video_ready)
         return -1;
-    DC_FlushRange(video_pixels, SCREEN_BYTES);
-    if (ui_mode && ui_pix) {
-        nds_ui_compose();
-        DC_FlushRange(comp_buf, SCREEN_W * LCD_H);
-        dmaCopyWords(3, comp_buf, video_vram, SCREEN_W * LCD_H);
-    } else {
-        dmaCopyWords(3, video_pixels, video_vram, SCREEN_W * LCD_H);
+    unsigned prof_f0 = nds_usec(); /* NDS-PROF */
+    { /* NDS-RAPIDO4: doble pagina en la VRAM (pagina 0 = base 0, pagina 1 = +64 KB) */
+        static int vpage_back = 1;
+        Uint8 *back = (Uint8 *)video_vram + (vpage_back ? 0x10000 : 0);
+        while (vpage_show >= 0) /* la pagina anterior aun no se ha mostrado */
+            ;
+        if (ui_mode == 0) {
+            vback = back;
+            nds_ui_compose(); /* el mundo va directo a la VRAM, 4 pixeles por escritura */
+            vback = NULL;
+        } else {
+            DC_FlushRange(video_pixels, SCREEN_BYTES);
+            nds_ui_compose(); /* NDS-ZOOM: siempre se compone (el mundo se reduce) */
+            DC_FlushRange(comp_buf, LCD_W * LCD_H);
+            dmaCopyWords(3, comp_buf, back, LCD_W * LCD_H);
+        }
+        vpage_show = vpage_back;
+        vpage_back ^= 1;
     }
+    while (dmaBusy(2)) /* NDS-RAPIDO5: no pisar la copia del HUD */
+        ;
     if (video_vram_sub && ui_mode >= 4) /* menus y videos: pantalla de arriba en negro */
-        dmaFillWords(0, video_vram_sub, SCREEN_W * LCD_H);
+        dmaFillWords(0, video_vram_sub, LCD_W * LCD_H);
     else if (video_vram_sub && hud_pan) { /* NDS-HUD */
+        static unsigned hud_n; /* NDS-RAPIDO4: HUD de arriba 1 de cada 2 fotogramas (NDS-RAPIDO7) */
+        if (hud_n++ & 1)
+            goto hud_skip;
         nds_hud_compose();
         DC_FlushRange(top_buf, sizeof top_buf);
-        dmaCopyWords(3, top_buf, video_vram_sub, sizeof top_buf);
+        dmaCopyWordsAsynch(2, top_buf, video_vram_sub, sizeof top_buf); /* NDS-RAPIDO5: en segundo plano */
+    hud_skip:;
     }
-    else if (video_vram_sub) /* panel pegado al borde de abajo de la pantalla superior */
-        dmaCopyWords(3, video_pixels + SCREEN_W * LCD_H,
-            (u8 *)video_vram_sub + SCREEN_W * (LCD_H - TOP_ROWS), SCREEN_W * TOP_ROWS);
+    else if (video_vram_sub)
+        dmaFillWords(0, video_vram_sub, LCD_W * LCD_H);
+    nds_prof_add(5, nds_usec() - prof_f0);
+    nds_mem_tick(); /* NDS-MEMTRK */
     nds_audio_update();
+    if (nds_net_hook) /* NDS-MP4: atender la red local cada fotograma */
+        nds_net_hook();
     thrd_yield();
     return 0;
 }
@@ -1912,6 +2385,15 @@ static void push_button(int down, int x, int y)
     evq_push(&e);
 }
 
+/* NDS-ATAJO */
+static volatile int nds_warp_req;
+int nds_take_warp(void)
+{
+    const int r = nds_warp_req;
+    nds_warp_req = 0;
+    return r;
+}
+
 static void input_poll(void)
 {
     u32 held, changed;
@@ -1921,6 +2403,21 @@ static void input_poll(void)
     scanKeys();
     held = keysHeld();
     changed = held ^ prev_held;
+    { /* NDS-ATAJO: L+R mantenidos 2 s piden bajar un nivel */
+        static Uint32 lr_since;
+        static int lr_done;
+        if ((held & (KEY_L | KEY_R)) == (KEY_L | KEY_R)) {
+            if (!lr_since)
+                lr_since = SDL_GetTicks() | 1u;
+            else if (!lr_done && SDL_GetTicks() - lr_since >= 2000u) {
+                nds_warp_req = 1;
+                lr_done = 1;
+            }
+        } else {
+            lr_since = 0;
+            lr_done = 0;
+        }
+    }
     for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++) {
         if (changed & keymap[i].ds) {
             int down = (held & keymap[i].ds) != 0;
@@ -2009,6 +2506,7 @@ SDLMod SDL_GetModState(void) { return KMOD_NONE; }
 
 /* ---------------- etapa 3: SD y rutas ---------------- */
 #include <fat.h>
+#include <dswifi9.h> /* NDS-MP1 */
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -2096,6 +2594,9 @@ static void nds_limit_log(void)
     }
 }
 
+/* NDS-MP1: wifi en modo local (multijugador DS a DS), sin conectarse a nada */
+int nds_wifi_ok = -1;
+
 void nds_platform_init(int *argc, char ***argv)
 {
     static int done;
@@ -2105,10 +2606,17 @@ void nds_platform_init(int *argc, char ***argv)
     setExceptionHandler(nds_exception); /* consola de depuracion en la pantalla secundaria */
         if (isDSiMode())
             setCpuClock(true);
+        printf("modo DSi: %s\n", isDSiMode() ? "SI" : "NO"); /* NDS-MODO */
+        if (!isDSiMode()) {
+            printf("\nEste juego necesita modo DSi\n(16 MB de RAM).\n\nEn TWiLight Menu++, ajustes del\njuego: Run in -> DSi mode,\no desactiva nds-bootstrap.\n");
+            for (;;)
+                swiWaitForVBlank();
+        }
         hb_start();
         irqSet(IRQ_VBLANK, nds_vblank);
         irqEnable(IRQ_VBLANK);
         nds_fat_ok = fatInitDefault();
+        nds_wifi_ok = Wifi_InitDefault(INIT_ONLY | WIFI_LOCAL_ONLY) ? 1 : 0; /* NDS-MP12: en el hilo principal, como el ejemplo */
         if (nds_fat_ok) {
             mkdir("sd:/devilutionx", 0777);
             mkdir("sd:/devilutionx/saves", 0777);
@@ -2144,7 +2652,32 @@ int SDL_SetColors(SDL_Surface *s, SDL_Color *colors, int first, int n)
 static s16 *mus_buf[2];
 static int mus_on, mus_ch[2] = { -1, -1 }, mus_stereo, mus_vol = 127;
 static u32 mus_written, mus_played;
-static u16 mus_t3_last;
+static u16 mus_t3_last; /* (ya no se usa: NDS-MP1) */
+/* NDS-MP1: posicion de la musica sin temporizadores 2/3 (la wifi usa el 3).
+   Los temporizadores 0/1 cuentan ticks del bus/64 (periodo de 523 ticks por "ms").
+   El canal de sonido avanza una muestra cada mus_period ticks del bus. */
+static u32 mus_period, mus_tick_last, mus_bus_acc;
+static u32 mus_ticks64(void)
+{
+    u16 a, b, c;
+    do {
+        a = TIMER_DATA(1);
+        b = TIMER_DATA(0);
+        c = TIMER_DATA(1);
+    } while (a != c);
+    return (u32)a * 523u + (u32)(u16)(b - (u16)TIMER_FREQ_64(1000));
+}
+static u32 mus_advance(void)
+{
+    const u32 wrap = 65536u * 523u;
+    u32 now = mus_ticks64(), d, n;
+    d = now >= mus_tick_last ? now - mus_tick_last : now + wrap - mus_tick_last;
+    mus_tick_last = now;
+    mus_bus_acc += d * 64u;
+    n = mus_period ? mus_bus_acc / mus_period : 0;
+    mus_bus_acc -= n * mus_period;
+    return n;
+}
 static int (*mus_read)(void *buf, int bytes);
 static volatile int aud_busy;
 static s16 mus_tmp[MUS_CHUNK * 2];
@@ -2179,9 +2712,7 @@ void nds_snd_kill(int ch)
 static void mus_fill(void)
 {
     const int fbytes = mus_stereo ? 4 : 2;
-    u16 t = TIMER_DATA(3);
-    mus_played += (u16)(t - mus_t3_last);
-    mus_t3_last = t;
+    mus_played += mus_advance(); /* NDS-MP1 */
     if ((s32)(mus_played - mus_written) > 0) { /* se quedo sin datos (carga larga): saltar adelante */
         mus_written = (mus_played + MUS_CHUNK) & ~(u32)(MUS_CHUNK - 1);
         nds_aud_underruns++;
@@ -2210,6 +2741,8 @@ static void mus_fill(void)
 void nds_mus_stop(void)
 {
     int i;
+    while (aud_busy) /* NDS-MP1B: otro hilo esta rellenando la musica */
+        thrd_yield();
     if (!mus_on)
         return;
     mus_on = 0;
@@ -2218,9 +2751,7 @@ void nds_mus_stop(void)
             soundKill(mus_ch[i]);
         mus_ch[i] = -1;
     }
-    TIMER_CR(3) = 0;
-    TIMER_CR(2) = 0;
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 2; i++) { /* NDS-MP1: sin temporizadores 2/3 */
         free(mus_buf[i]);
         mus_buf[i] = NULL;
     }
@@ -2246,19 +2777,17 @@ static int nds_mus_start_ex(int freq, int stereo, int (*rd)(void *buf, int bytes
     mus_written = 0;
     mus_played = 0;
     mus_t3_last = 0;
+    mus_period = 2u * (0x1000000u / (u32)freq); /* NDS-MP1 */
+    mus_bus_acc = 0;
+    mus_tick_last = mus_ticks64();
     aud_busy = 1;
     mus_fill(); /* llenar el anillo antes de empezar */
     aud_busy = 0;
-    TIMER_CR(2) = 0;
-    TIMER_CR(3) = 0;
     for (i = 0; i < n; i++)
         mus_ch[i] = soundPlaySample(mus_buf[i], SoundFormat_16Bit, MUS_RB * 2, (u16)freq, (u8)mus_vol,
             stereo ? (i == 0 ? 0 : 127) : 64, true, 0);
-    /* contador de muestras: mismo periodo que el temporizador del canal de sonido */
-    TIMER_DATA(3) = 0;
-    TIMER_CR(3) = TIMER_ENABLE | TIMER_CASCADE;
-    TIMER_DATA(2) = (u16)(-(2 * (0x1000000 / freq)));
-    TIMER_CR(2) = TIMER_ENABLE | TIMER_DIV_1;
+    mus_tick_last = mus_ticks64(); /* NDS-MP1: la cuenta empieza al arrancar los canales */
+    mus_bus_acc = 0;
     mus_on = 1;
     return mus_ch[0] >= 0;
 }

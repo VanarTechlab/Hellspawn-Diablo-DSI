@@ -26,7 +26,11 @@ namespace devilution {
 
 int provider;
 const char *ConnectionNames[] {
+#ifdef __NDS__ /* NDS-MP2 */
+	"DSi local",
+#else
 	"ZeroTier",
+#endif
 	N_("Client-Server (TCP)"),
 	N_("Offline"),
 };
@@ -54,6 +58,9 @@ void SelconnLoad()
 	LoadBackgroundArt("ui_art\\selconn");
 
 #ifndef NONET
+#ifdef __NDS__ /* NDS-MP2 */
+	vecConnItems.push_back(std::make_unique<UiListItem>(std::string_view(ConnectionNames[SELCONN_ZT]), SELCONN_ZT));
+#endif
 #ifndef DISABLE_ZERO_TIER
 	vecConnItems.push_back(std::make_unique<UiListItem>(std::string_view(ConnectionNames[SELCONN_ZT]), SELCONN_ZT));
 #endif
@@ -127,7 +134,11 @@ void SelconnFocus(size_t value)
 		players = MAX_PLRS;
 		break;
 	case SELCONN_ZT:
+#ifdef __NDS__ /* NDS-MP2 */
+		CopyUtf8(selconn_Description, "DSi/3DS cercanas, sin router. Una crea la partida y la otra se une.", sizeof(selconn_Description));
+#else
 		CopyUtf8(selconn_Description, _("All computers must be connected to the internet."), sizeof(selconn_Description));
+#endif
 		players = MAX_PLRS;
 		break;
 	case SELCONN_LOOPBACK:

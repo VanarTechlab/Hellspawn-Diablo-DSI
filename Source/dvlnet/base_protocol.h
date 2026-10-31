@@ -180,6 +180,9 @@ int base_protocol<P>::create(std::string_view addrstr)
 {
 	gamename = addrstr;
 	isGameHost_ = true;
+#ifdef __NDS__ /* NDS-MP2 */
+	proto.prepare_host(true);
+#endif
 
 	std::expected<void, PacketError> isReady = wait_network();
 	if (!isReady.has_value()) {
@@ -202,6 +205,9 @@ int base_protocol<P>::join(std::string_view addrstr)
 {
 	gamename = addrstr;
 	isGameHost_ = false;
+#ifdef __NDS__ /* NDS-MP2 */
+	proto.prepare_host(false);
+#endif
 
 	std::expected<void, PacketError> isReady = wait_network();
 	if (!isReady.has_value()) {

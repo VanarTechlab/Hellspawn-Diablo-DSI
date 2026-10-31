@@ -169,6 +169,12 @@ size_t GetNumAnimsWithGraphics(const MonsterData &monsterData)
 	return result;
 }
 
+#ifdef __NDS__ /* NDS-TRN */
+bool NdsDeferMonsterTrn = false;
+std::byte *NdsSharedSprites = nullptr;
+std::array<uint32_t, MonsterSpritesData::MaxAnims + 1> NdsSharedOffsets {};
+#endif
+
 void InitMonsterTRN(CMonster &monst)
 {
 	char path[64];
@@ -176,6 +182,13 @@ void InitMonsterTRN(CMonster &monst)
 	std::array<uint8_t, 256> colorTranslations;
 	LoadFileInMem(path, colorTranslations);
 	std::replace(colorTranslations.begin(), colorTranslations.end(), 255, 0);
+#ifdef __NDS__ /* NDS-TRN: guardar la tabla en vez de pintar los graficos compartidos */
+	if (NdsDeferMonsterTrn) {
+		monst.ndsTrn = std::make_unique<uint8_t[]>(256);
+		std::copy(colorTranslations.begin(), colorTranslations.end(), monst.ndsTrn.get());
+		return;
+	}
+#endif
 
 	const size_t numAnims = GetNumAnims(monst.data());
 	for (size_t i = 0; i < numAnims; i++) {
@@ -3555,9 +3568,24 @@ std::expected<void, std::string> InitMonsterGFX(CMonster &monsterType, MonsterSp
 
 	const _monster_id mtype = monsterType.type;
 	const MonsterData &monsterData = MonstersData[mtype];
+#ifdef __NDS__ /* NDS-TRN */
+	monsterType.ndsTrn = nullptr;
+	std::byte *ndsBase;
+	if (spritesData.data == nullptr && NdsSharedSprites != nullptr) {
+		spritesData.offsets = NdsSharedOffsets;
+		monsterType.animData = nullptr;
+		ndsBase = NdsSharedSprites;
+	} else {
+		if (spritesData.data == nullptr)
+			spritesData = LoadMonsterSpritesData(monsterData);
+		monsterType.animData = std::move(spritesData.data);
+		ndsBase = monsterType.animData.get();
+	}
+#else
 	if (spritesData.data == nullptr)
 		spritesData = LoadMonsterSpritesData(monsterData);
 	monsterType.animData = std::move(spritesData.data);
+#endif
 
 	const size_t numAnims = GetNumAnims(monsterData);
 	for (size_t i = 0, j = 0; i < numAnims; ++i) {
@@ -3567,7 +3595,11 @@ std::expected<void, std::string> InitMonsterGFX(CMonster &monsterType, MonsterSp
 		}
 		const uint32_t begin = spritesData.offsets[j];
 		const uint32_t end = spritesData.offsets[j + 1];
+#ifdef __NDS__ /* NDS-TRN */
+		auto *animSpritesData = reinterpret_cast<uint8_t *>(ndsBase + begin);
+#else
 		auto *animSpritesData = reinterpret_cast<uint8_t *>(&monsterType.animData[begin]);
+#endif
 		const uint16_t numLists = GetNumListsFromClxListOrSheetBuffer(animSpritesData, end - begin);
 		monsterType.anims[i].sprites = ClxSpriteListOrSheet { animSpritesData, numLists };
 		++j;
@@ -3642,6 +3674,25 @@ std::expected<void, std::string> InitAllMonsterGFX()
 			continue;
 		MonsterSpritesData spritesData = LoadMonsterSpritesData(firstMonster.data());
 		const size_t spritesDataSize = spritesData.offsets[GetNumAnimsWithGraphics(firstMonster.data())];
+#ifdef __NDS__ /* NDS-TRN: un solo bloque de graficos por sprite; el color de cada tipo se aplica al dibujar */
+		{
+			std::byte *const ndsShared = spritesData.data.get();
+			const auto ndsOffsets = spritesData.offsets;
+			NdsDeferMonsterTrn = monsterTypes.size() > 1;
+			totalUniqueBytes += spritesDataSize;
+			totalBytes += spritesDataSize;
+			auto ndsRes = InitMonsterGFX(firstMonster, std::move(spritesData));
+			for (size_t i = 1; ndsRes.has_value() && i < monsterTypes.size(); ++i) {
+				NdsSharedSprites = ndsShared;
+				NdsSharedOffsets = ndsOffsets;
+				ndsRes = InitMonsterGFX(LevelMonsterTypes[monsterTypes[i]], MonsterSpritesData {});
+				NdsSharedSprites = nullptr;
+			}
+			NdsDeferMonsterTrn = false;
+			if (!ndsRes.has_value())
+				return ndsRes;
+		}
+#else
 		for (size_t i = 1; i < monsterTypes.size(); ++i) {
 			MonsterSpritesData spritesDataCopy { std::unique_ptr<std::byte[]> { new std::byte[spritesDataSize] }, spritesData.offsets };
 			memcpy(spritesDataCopy.data.get(), spritesData.data.get(), spritesDataSize);
@@ -3651,6 +3702,7 @@ std::expected<void, std::string> InitAllMonsterGFX()
 		totalUniqueBytes += spritesDataSize;
 		totalBytes += spritesDataSize * monsterTypes.size();
 		RETURN_IF_ERROR(InitMonsterGFX(firstMonster, std::move(spritesData)));
+#endif
 	}
 	LogVerbose(" Total monster graphics:                 {:>4d} KiB {:>4d} KiB", totalUniqueBytes / 1024, totalBytes / 1024);
 
@@ -4263,9 +4315,15 @@ void RemoveEnemyReferences(const Player &player)
 	}
 }
 
+#ifdef __NDS__ /* NDS-RAPIDO6 */
+extern "C" void nds_prof_mon(unsigned total, unsigned run);
+#endif
 void ProcessMonsters()
 {
 	DeleteMonsterList();
+#ifdef __NDS__ /* NDS-RAPIDO6 */
+	unsigned ndsRun = 0;
+#endif
 
 	assert(ActiveMonsterCount <= MaxMonsters);
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
@@ -4284,6 +4342,16 @@ void ProcessMonsters()
 			monster.hitPoints = std::min(monster.hitPoints, monster.maxHitPoints); // prevent going over max HP with part of a single regen tick
 		}
 
+#ifdef __NDS__ /* NDS-RAPIDO6: dormido, quieto y lejos del jugador: no hace falta su IA */
+		if (monster.activeForTicks == 0 && monster.mode == MonsterMode::Stand && (monster.flags & MFLAG_TARGETS_MONSTER) == 0) {
+			const Point ndsP = MyPlayer->position.tile;
+			const int ndsDx = std::abs(monster.position.tile.x - ndsP.x);
+			const int ndsDy = std::abs(monster.position.tile.y - ndsP.y);
+			if (std::max(ndsDx, ndsDy) > 24)
+				continue;
+		}
+		ndsRun++;
+#endif
 		const bool isMonsterVisible = IsTileVisible(monster.position.tile);
 		if (isMonsterVisible && monster.activeForTicks == 0) {
 			if (monster.type().type == MT_CLEAVER) {
@@ -4343,6 +4411,9 @@ void ProcessMonsters()
 	}
 
 	DeleteMonsterList();
+#ifdef __NDS__ /* NDS-RAPIDO6 */
+	nds_prof_mon(static_cast<unsigned>(ActiveMonsterCount), ndsRun);
+#endif
 }
 
 void FreeMonsters()
@@ -4350,6 +4421,9 @@ void FreeMonsters()
 	for (CMonster &monsterType : LevelMonsterTypes) {
 		monsterType.animData = nullptr;
 		monsterType.corpseId = 0;
+#ifdef __NDS__ /* NDS-TRN */
+		monsterType.ndsTrn = nullptr;
+#endif
 		for (AnimStruct &animData : monsterType.anims) {
 			animData.sprites = std::nullopt;
 		}
