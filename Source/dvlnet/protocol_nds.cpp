@@ -1,4 +1,4 @@
-// NDS-MP2 + NDS-MP3 + NDS-MP4 + NDS-MP5 + NDS-MP6 + NDS-MP7 + NDS-MP8 + NDS-MP9 + NDS-MP10 + NDS-MP11 + NDS-MP13 + NDS-MP14 + NDS-MP15 + NDS-MP16 + NDS-MP17: conector "DSi local" sobre DSWiFi (multijugador local DS a DS).
+// NDS-MP2 + NDS-MP3 + NDS-MP4 + NDS-MP5 + NDS-MP6 + NDS-MP7 + NDS-MP8 + NDS-MP9 + NDS-MP10 + NDS-MP11 + NDS-MP13 + NDS-MP14 + NDS-MP15 + NDS-MP16 + NDS-MP17 + NDS-MP18 + NDS-MP19: conector "DSi local" sobre DSWiFi (multijugador local DS a DS).
 //
 // Transporte (NDS-MP4): se usa el mecanismo CMD/REPLY del multijugador de DS, el mismo del ejemplo
 // local_multiplayer que funciono entre DSi y 3DS:
@@ -201,6 +201,7 @@ HostState HState = HostState::Init;
 uint16_t LastMask = 0;
 uint32_t LastCmdUs = 0;
 uint32_t LastCmdSeen = 0;
+uint32_t ConnectStartMs = 0; // NDS-MP19
 std::array<Peer, NumIds> Peers;
 std::deque<std::pair<uint8_t, buffer_t>> Delivered; // mensajes completos (fiables)
 std::deque<std::pair<uint8_t, buffer_t>> OobQueue;  // fuera de banda recibidos
@@ -433,7 +434,12 @@ bool HostWatchdog()
 {
 	const uint32_t now = NowMs();
 	const uint32_t tx = Wifi_GetStats(WSTAT_TXPACKETS);
-	if (tx != WatchTx || WatchAt == 0) {
+	// NDS-MP18: si el juego estuvo un rato sin atender la red (cargando, saliendo), es normal que no se
+	// haya transmitido nada: se vuelve a empezar a contar en vez de dar la radio por trabada
+	static uint32_t lastCall = 0;
+	const bool gap = lastCall != 0 && now - lastCall > 200;
+	lastCall = now;
+	if (tx != WatchTx || WatchAt == 0 || gap) {
 		WatchTx = tx;
 		WatchAt = now;
 		return false;
@@ -523,6 +529,7 @@ void ClientStep()
 			if (ap.nintendo.game_id == GameId && ap.nintendo.allows_connections) {
 				NetLog("cliente: partida encontrada, conectando (canal %d)", ap.channel);
 				Wifi_ConnectOpenAP(&ap);
+				ConnectStartMs = NowMs(); // NDS-MP19
 				CState = ClientState::Connecting;
 				break;
 			}
@@ -542,10 +549,12 @@ void ClientStep()
 			}
 			LastCmdSeen = CmdArrived - 1; // preparar ya una respuesta
 			CState = ClientState::Connected;
-		} else if (st == ASSOCSTATUS_CANNOTCONNECT) {
-			NetLog("cliente: no se pudo conectar, buscando otra vez");
-			Wifi_ScanMode();
-			CState = ClientState::Scan;
+		} else if (st == ASSOCSTATUS_CANNOTCONNECT || NowMs() - ConnectStartMs > 5000) {
+			// NDS-MP19: se vio a la 3DS quedarse para siempre "conectando" (estado %d sin cambiar).
+			// Tras 5 s sin conectar se reinicia el modo cliente entero y se vuelve a buscar.
+			NetLog("cliente: no se pudo conectar (estado %d), se reinicia el modo cliente", st);
+			Wifi_IdleMode();
+			CState = ClientState::Init;
 		}
 		break;
 	}
@@ -616,7 +625,7 @@ void Service()
 			lastEngine = nowE;
 	}
 	static uint32_t lastStat = 0;
-	if (CurRole != Role::None && NowMs() - lastStat >= 2000) {
+	if (CurRole != Role::None && NowMs() - lastStat >= 30000) { // NDS-MP18: cada 30 s (antes 2 s), menos escrituras en la SD
 		lastStat = NowMs();
 		NetLog("resumen: enviadas %u recibidas %u cmd env %u rec %u perdidas %u receptor %u (tipo %d len %d) assoc %d",
 		    static_cast<unsigned>(StatTx), static_cast<unsigned>(StatRx), static_cast<unsigned>(StatCmdTx), static_cast<unsigned>(CmdArrived),

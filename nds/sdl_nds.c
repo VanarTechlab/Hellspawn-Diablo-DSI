@@ -2616,7 +2616,7 @@ void nds_platform_init(int *argc, char ***argv)
         irqSet(IRQ_VBLANK, nds_vblank);
         irqEnable(IRQ_VBLANK);
         nds_fat_ok = fatInitDefault();
-        nds_wifi_ok = Wifi_InitDefault(INIT_ONLY | WIFI_LOCAL_ONLY) ? 1 : 0; /* NDS-MP12: en el hilo principal, como el ejemplo */
+        /* NDS-MP20: la wifi se enciende al entrar en "DSi local" (protocol_nds.cpp), no al arrancar */
         if (nds_fat_ok) {
             mkdir("sd:/devilutionx", 0777);
             mkdir("sd:/devilutionx/saves", 0777);
