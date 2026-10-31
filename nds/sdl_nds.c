@@ -2523,28 +2523,91 @@ static char *nds_args[] = { arg0, arg1, arg2, arg3, arg4, arg5, arg6, NULL };
 int nds_fat_ok;
 
 
-static void pf_dir(const char *path)
+/* NDS-ERROR: comprobacion de la SD al arrancar; si falta algo se avisa y se detiene el juego */
+static int pf_has_dir(const char *path)
 {
     DIR *d = opendir(path);
-    printf("%s %s\n", d ? "ok   " : "FALTA", path);
     if (d)
         closedir(d);
+    return d != NULL;
 }
 
-static void pf_file(const char *path)
+static int pf_has_file(const char *path)
 {
     FILE *f = fopen(path, "rb");
-    printf("%s %s\n", f ? "ok   " : "FALTA", path);
     if (f)
         fclose(f);
+    return f != NULL;
+}
+
+static int pf_can_write(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f)
+        return 0;
+    const int ok = fwrite("ok", 1, 2, f) == 2;
+    fclose(f);
+    remove(path);
+    return ok;
+}
+
+static void pf_line(int ok, const char *what)
+{
+    printf("%s %s\n", ok ? " ok  " : "FALTA", what);
+}
+
+static void nds_stop_screen(void)
+{
+    printf("\n Copia lo que falta en la SD\n");
+    printf(" y vuelve a abrir el juego.\n\n");
+    printf(" START: volver al menu\n");
+    for (;;) {
+        swiWaitForVBlank();
+        scanKeys();
+        if (keysDown() & KEY_START)
+            exit(0);
+    }
 }
 
 static void nds_preflight(void)
 {
-    pf_dir("sd:/devilutionx/assets");
-    pf_file("sd:/devilutionx/assets/ui_art/diablo.pal");
-    pf_dir("sd:/devilutionx/spawn");
-    pf_dir("sd:/devilutionx/spawn/ctrlpan");
+    const int assets = pf_has_dir("sd:/devilutionx/assets");
+    const int pal = pf_has_file("sd:/devilutionx/assets/ui_art/diablo.pal");
+    const int full = pf_has_dir("sd:/devilutionx/diabdat");
+    const int demo = pf_has_dir("sd:/devilutionx/spawn");
+    const char *data = full ? "sd:/devilutionx/diabdat" : "sd:/devilutionx/spawn";
+    char p1[64], p2[64];
+    snprintf(p1, sizeof p1, "%s/levels", data);
+    snprintf(p2, sizeof p2, "%s/ui_art", data);
+    const int lv = (full || demo) && pf_has_dir(p1);
+    const int ui = (full || demo) && pf_has_dir(p2);
+    const int wr = pf_can_write("sd:/devilutionx/saves/prueba_sd.tmp");
+    const int ok = assets && pal && (full || demo) && lv && ui && wr;
+    printf("datos: %s\n", full ? "version completa" : (demo ? "demo (spawn)" : "ninguno"));
+    if (ok)
+        return;
+    consoleClear();
+    printf("===============================\n");
+    printf("   FALTAN ARCHIVOS EN LA SD\n");
+    printf("===============================\n");
+    pf_line(assets, "devilutionx/assets/");
+    pf_line(pal, "assets/ui_art/diablo.pal");
+    if (full || demo) {
+        pf_line(1, full ? "devilutionx/diabdat/" : "devilutionx/spawn/");
+        pf_line(lv, full ? "diabdat/levels/" : "spawn/levels/");
+        pf_line(ui, full ? "diabdat/ui_art/" : "spawn/ui_art/");
+    } else {
+        pf_line(0, "devilutionx/diabdat/");
+        printf("      (o spawn/ para la demo)\n");
+    }
+    pf_line(wr, "escribir en saves/");
+    if (!assets || !pal)
+        printf("\n assets/ sale de la carpeta\n build-nds/assets del PC.\n");
+    if (!(full || demo) || !lv || !ui)
+        printf("\n diabdat/ es diabdat.mpq\n desempaquetado (carpetas\n levels, ui_art, ...).\n");
+    if (!wr)
+        printf("\n La SD no deja escribir:\n mira si esta bloqueada.\n");
+    nds_stop_screen();
 }
 
 #define PAGE_CHARS 600
@@ -2632,7 +2695,12 @@ void nds_platform_init(int *argc, char ***argv)
                 nds_limit_log();
             }
         } else {
-            printf("FAT: no se pudo iniciar\n");
+            consoleClear(); /* NDS-ERROR */
+            printf("===============================\n");
+            printf("   NO SE PUEDE LEER LA SD\n");
+            printf("===============================\n\n");
+            printf(" Revisa que la tarjeta este\n bien puesta y abre el juego\n desde la SD.\n");
+            nds_stop_screen();
         }
     }
     if (argc && argv) {
