@@ -109,7 +109,7 @@ void FlushLog()
 {
 	if (LogBuf.empty())
 		return;
-	FILE *f = std::fopen("sd:/devilutionx/red.txt", LogStarted ? "a" : "w");
+	FILE *f = std::fopen("red.txt" /* NDS-RAIZ */, LogStarted ? "a" : "w");
 	if (f == nullptr)
 		return;
 	LogStarted = true;

@@ -92,6 +92,20 @@ static void timer_init(void)
     timer_ready = 1;
 }
 
+/* NDS-RAIZ: raiz de los datos: "sd:" en DSi/3DS, "fat:" en melonDS con DLDI */
+#include <dirent.h>
+#include <string.h>
+#include <stdio.h>
+char nds_root[8] = "sd:";
+static const char *nds_r(const char *rest)
+{
+    static char buf[8][128];
+    static int i;
+    char *b = buf[i++ & 7];
+    snprintf(b, 128, "%s%s", nds_root, rest);
+    return b;
+}
+
 /* ---- latido de depuracion: hilo propio que escribe contadores cada segundo ---- */
 static volatile int no_page;
 static volatile unsigned hb_flip, hb_poll, hb_delay, hb_ticks, hb_mtx, hb_sec;
@@ -1999,11 +2013,11 @@ static void nds_mem_tick(void)
         in_game = 1;
     if (in_game && mt_total > peak + 256u * 1024u) {
         peak = mt_total;
-        mt_write("sd:/devilutionx/memoria_pico.txt");
+        mt_write(nds_r("/devilutionx/memoria_pico.txt"));
     }
     if (hud_pan && ui_mode < 4 && now - last >= 10000u) { /* NDS-MEMNOMBRES: solo en partida */
         last = now;
-        mt_write("sd:/devilutionx/memoria.txt");
+        mt_write(nds_r("/devilutionx/memoria.txt"));
     }
 }
 /* ---------- medidor de rendimiento (NDS-PROF) ---------- */
@@ -2124,7 +2138,7 @@ static void nds_top_img_show(void)
     if (nds_top_img_tried)
         return;
     nds_top_img_tried = 1;
-    FILE *f = fopen("sd:/devilutionx/assets/ui_art/hellspawn_arriba.bin", "rb");
+    FILE *f = fopen(nds_r("/devilutionx/assets/ui_art/hellspawn_arriba.bin"), "rb");
     if (!f)
         return;
     u16 *buf = (u16 *)malloc(LCD_W * LCD_H * 2);
@@ -2561,11 +2575,11 @@ SDLMod SDL_GetModState(void) { return KMOD_NONE; }
 
 static char arg0[] = "devilutionx";
 static char arg1[] = "--data-dir";
-static char arg2[] = "sd:/devilutionx/";
+static char arg2[48] = "sd:" "/devilutionx/";
 static char arg3[] = "--save-dir";
-static char arg4[] = "sd:/devilutionx/saves/";
+static char arg4[48] = "sd:" "/devilutionx/saves/";
 static char arg5[] = "--config-dir";
-static char arg6[] = "sd:/devilutionx/saves/";
+static char arg6[48] = "sd:" "/devilutionx/saves/";
 static char arg7[] = "--verbose";
 static char *nds_args[] = { arg0, arg1, arg2, arg3, arg4, arg5, arg6, NULL };
 int nds_fat_ok;
@@ -2619,17 +2633,17 @@ static void nds_stop_screen(void)
 
 static void nds_preflight(void)
 {
-    const int assets = pf_has_dir("sd:/devilutionx/assets");
-    const int pal = pf_has_file("sd:/devilutionx/assets/ui_art/diablo.pal");
-    const int full = pf_has_dir("sd:/devilutionx/diabdat");
-    const int demo = pf_has_dir("sd:/devilutionx/spawn");
-    const char *data = full ? "sd:/devilutionx/diabdat" : "sd:/devilutionx/spawn";
+    const int assets = pf_has_dir(nds_r("/devilutionx/assets"));
+    const int pal = pf_has_file(nds_r("/devilutionx/assets/ui_art/diablo.pal"));
+    const int full = pf_has_dir(nds_r("/devilutionx/diabdat"));
+    const int demo = pf_has_dir(nds_r("/devilutionx/spawn"));
+    const char *data = full ? nds_r("/devilutionx/diabdat") : nds_r("/devilutionx/spawn");
     char p1[64], p2[64];
     snprintf(p1, sizeof p1, "%s/levels", data);
     snprintf(p2, sizeof p2, "%s/ui_art", data);
     const int lv = (full || demo) && pf_has_dir(p1);
     const int ui = (full || demo) && pf_has_dir(p2);
-    const int wr = pf_can_write("sd:/devilutionx/saves/prueba_sd.tmp");
+    const int wr = pf_can_write(nds_r("/devilutionx/saves/prueba_sd.tmp"));
     const int ok = assets && pal && (full || demo) && lv && ui && wr;
     printf("datos: %s\n", full ? "version completa" : (demo ? "demo (spawn)" : "ninguno"));
     if (ok)
@@ -2727,11 +2741,22 @@ void nds_platform_init(int *argc, char ***argv)
         irqSet(IRQ_VBLANK, nds_vblank);
         irqEnable(IRQ_VBLANK);
         nds_fat_ok = fatInitDefault();
+        { /* NDS-RAIZ: si solo existe fat:/devilutionx (melonDS + DLDI) se usa fat: */
+            DIR *d2 = opendir("sd:" "/devilutionx"); /* NDS-RAIZ2: fat: solo si no hay sd: */
+            DIR *d1 = d2 ? NULL : opendir("fat:/devilutionx");
+            if (d1 && !d2) { strcpy(nds_root, "fat:"); nds_fat_ok = 1; }
+            if (d1) closedir(d1);
+            if (d2) closedir(d2);
+            snprintf(arg2, sizeof arg2, "%s/devilutionx/", nds_root);
+            snprintf(arg4, sizeof arg4, "%s/devilutionx/saves/", nds_root);
+            snprintf(arg6, sizeof arg6, "%s/devilutionx/saves/", nds_root);
+            printf("datos en: %s/devilutionx\n", nds_root);
+        }
         /* NDS-MP20: la wifi se enciende al entrar en "DSi local" (protocol_nds.cpp), no al arrancar */
         if (nds_fat_ok) {
-            mkdir("sd:/devilutionx", 0777);
-            mkdir("sd:/devilutionx/saves", 0777);
-            chdir("sd:/devilutionx/");
+            mkdir(nds_r("/devilutionx"), 0777);
+            mkdir(nds_r("/devilutionx/saves"), 0777);
+            chdir(nds_r("/devilutionx/"));
             {
                 char cwd[96];
                 printf("cwd: %s\n", getcwd(cwd, sizeof(cwd)) ? cwd : "?");
@@ -3026,7 +3051,7 @@ int nds_dsv_begin(const char *name, int loop)
         n++;
     }
     base[n] = 0;
-    snprintf(path, sizeof path, "sd:/devilutionx/dsv/%s.dsv", base);
+    snprintf(path, sizeof path, nds_r("/devilutionx/dsv/%s.dsv"), base);
     dsv_f = fopen(path, "rb");
     if (!dsv_f)
         return 0;
