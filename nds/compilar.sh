@@ -12,7 +12,7 @@ if cmake --build "$DIR" -j $(nproc) > /tmp/build.log 2>&1; then
 else
   grep -n "error" -A 3 /tmp/build.log | head -40; exit 1
 fi
-$BLOCKSDS/tools/ndstool/ndstool -c ~/devilutionx_test.nds -7 /home/vanar/arm7_fix/arm7_dswifi_fix.elf -9 "$DIR/devilutionx.elf" -b ~/sdl_nds_test/icon.gif "DevilutionX;DSi;port" > /dev/null && echo "NDS OK"
+$BLOCKSDS/tools/ndstool/ndstool -c ~/devilutionx_test.nds -7 /home/vanar/arm7_fix/arm7_dswifi_fix.elf -9 "$DIR/devilutionx.elf" -b ~/sdl_nds_test/icon.gif "Hellspawn;Diablo DSI por Vanar" > /dev/null && echo "NDS OK"
 cd "$DIR"
 sed -e 's/ -s / /g' -e 's/-Wl,-s / /g' -e 's/-Wl,--strip-all / /g' -e 's/--strip-all / /g' -e 's#-o devilutionx.elf#-o devilutionx_sym.elf -Wl,-Map=devilutionx.map#' CMakeFiles/devilutionx.dir/link.txt > /tmp/link_sym.sh
 bash /tmp/link_sym.sh 2>&1 | grep -E 'error|undefined' | head

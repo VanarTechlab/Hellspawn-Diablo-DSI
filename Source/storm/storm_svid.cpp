@@ -37,6 +37,12 @@
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/sdl_wrap.h"
+#ifdef __NDS__ /* NDS-DSV: cinematicas propias convertidas para la DSi */
+extern "C" int nds_dsv_begin(const char *name, int loop);
+extern "C" int nds_dsv_continue(void);
+extern "C" void nds_dsv_end(void);
+static bool NdsDsvActive;
+#endif
 #ifdef __NDS__ /* NDS-VIDAUDIO */
 #include <cmath>
 extern "C" void nds_vid_audio_begin(int rate, int channels, int bits, int vol);
@@ -368,6 +374,11 @@ bool SVidPlayBegin(const char *filename, int flags)
 	SVidLoop = false;
 	if ((flags & 0x40000) != 0)
 		SVidLoop = true;
+#ifdef __NDS__ /* NDS-DSV: si hay version convertida (.dsv) se usa esa */
+	NdsDsvActive = nds_dsv_begin(filename, SVidLoop ? 1 : 0) != 0;
+	if (NdsDsvActive)
+		return true;
+#endif
 	// 0x8 // Non-interlaced
 	// 0x200, 0x800 // Upscale video
 	// 0x80000 // Center horizontally
@@ -506,6 +517,10 @@ constexpr bool NdsAllowFrameSkip = true;
 #endif
 bool SVidPlayContinue()
 {
+#ifdef __NDS__ /* NDS-DSV */
+	if (NdsDsvActive)
+		return nds_dsv_continue() != 0;
+#endif
 	if (Smacker_DidPaletteChange(SVidHandle)) {
 		UpdatePalette();
 	}
@@ -562,6 +577,13 @@ bool SVidPlayContinue()
 
 void SVidPlayEnd()
 {
+#ifdef __NDS__ /* NDS-DSV */
+	if (NdsDsvActive) {
+		nds_dsv_end();
+		NdsDsvActive = false;
+		return;
+	}
+#endif
 #ifndef NOSOUND
 	if (SVidAudioStream) {
 #ifdef USE_SDL3

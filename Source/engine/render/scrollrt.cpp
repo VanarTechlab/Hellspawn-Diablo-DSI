@@ -2095,7 +2095,8 @@ void DrawAndBlit()
 			const unsigned ndsPm = nds_usec();
 			DrawAutomap(mapOut);
 			nds_prof_add(3, nds_usec() - ndsPm); /* NDS-PROF */
-			for (int ln = 0; ln < 4; ln++) /* NDS-PROF: medidas en el minimapa (NDS-RAPIDO5: 4 lineas) */
+#define NDS_MEDIDOR 0 /* NDS-SINMEDIDOR: 1 = mostrar el medidor en el minimapa */
+			for (int ln = 0; ln < (NDS_MEDIDOR ? 4 : 0); ln++) /* NDS-PROF: medidas en el minimapa (NDS-RAPIDO5: 4 lineas) */
 				DrawString(mapOut, nds_prof_line(ln), Point { 6, 38 + ln * 14 }, { .flags = UiFlags::ColorWhite });
 			SetAutomapType(prevType);
 			MinimapRect = prevRect;

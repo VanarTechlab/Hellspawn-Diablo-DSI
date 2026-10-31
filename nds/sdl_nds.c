@@ -1399,6 +1399,12 @@ int SDL_SoftStretch(SDL_Surface *src, SDL_Rect *srcrect, SDL_Surface *dst, SDL_R
 }
 
 /* ---------------- video ---------------- */
+static int nds_put_null(char c, FILE *f) /* NDS-RAYA: salida de texto descartada */
+{
+    (void)f;
+    return (unsigned char)c;
+}
+
 SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
 {
     (void)w; (void)h; (void)bpp; (void)flags; /* siempre se entrega 256x192x8 */
@@ -1427,6 +1433,9 @@ SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
             vramSetBankC(VRAM_C_SUB_BG);
             bgs = bgInitSub(3, BgType_Bmp8, BgSize_B8_256x256, 4, 0);
             video_vram_sub = (void *)bgGetGfxPtr(bgs);
+            stdout->put = nds_put_null; /* NDS-RAYA: la consola ya no se ve; que no pinte en la VRAM de arriba */
+            if (stderr != stdout)
+                stderr->put = nds_put_null;
             dmaFillWords(0, video_vram_sub, SCREEN_W * LCD_H);
         }
         video_palette.ncolors = 256;
@@ -1538,6 +1547,11 @@ void nds_ui_frame_scaled(const unsigned char *pixels, int pitch, int w, int h)
 static void nds_ui_compose(void)
 {
     int x, y;
+    if (ui_mode == 5 && ui_w == LCD_W && ui_h == LCD_H) { /* NDS-DSV: cuadro ya a 256x192: copia directa */
+        for (y = 0; y < LCD_H; y++)
+            memcpy(comp_buf + y * LCD_W, ui_pix + y * ui_pitch, LCD_W);
+        return;
+    }
     if (ui_mode == 5) { /* video: escalar el cuadro entero a 256x192 */
         for (y = 0; y < LCD_H; y++) {
             const unsigned char *s = ui_pix + (y * ui_h / LCD_H) * ui_pitch;
@@ -2103,6 +2117,34 @@ const char *nds_prof_line(int n)
     return (n >= 0 && n < 7) ? prof_txt[n] : ""; /* NDS-RAPIDO2 */
 }
 
+/* NDS-ARRIBA: imagen propia en la pantalla de arriba durante los menus */
+static int nds_top_img_on, nds_top_img_tried;
+static void nds_top_img_show(void)
+{
+    if (nds_top_img_tried)
+        return;
+    nds_top_img_tried = 1;
+    FILE *f = fopen("sd:/devilutionx/assets/ui_art/hellspawn_arriba.bin", "rb");
+    if (!f)
+        return;
+    u16 *buf = (u16 *)malloc(LCD_W * LCD_H * 2);
+    if (buf && fread(buf, 2, LCD_W * LCD_H, f) == LCD_W * LCD_H) {
+        REG_BG3CNT_SUB = BG_BMP16_256x256 | BG_MAP_BASE(0);
+        DC_FlushRange(buf, LCD_W * LCD_H * 2);
+        dmaCopyWords(3, buf, BG_BMP_RAM_SUB(0), LCD_W * LCD_H * 2);
+        nds_top_img_on = 1;
+    }
+    free(buf);
+    fclose(f);
+}
+static void nds_top_img_hide(void)
+{
+    REG_BG3CNT_SUB = BG_BMP8_256x256 | BG_MAP_BASE(4);
+    dmaFillWords(0, video_vram_sub, LCD_W * LCD_H);
+    nds_top_img_on = 0;
+    nds_top_img_tried = 0; /* la proxima vez que se entre en los menus se vuelve a mostrar */
+}
+
 int SDL_Flip(SDL_Surface *s)
 {
     hb_flip++;
@@ -2135,8 +2177,14 @@ int SDL_Flip(SDL_Surface *s)
     }
     while (dmaBusy(2)) /* NDS-RAPIDO5: no pisar la copia del HUD */
         ;
-    if (video_vram_sub && ui_mode >= 4) /* menus y videos: pantalla de arriba en negro */
-        dmaFillWords(0, video_vram_sub, LCD_W * LCD_H);
+    if (nds_top_img_on && ui_mode < 4) /* NDS-ARRIBA: se sale de los menus: arriba vuelve a 8 bits */
+        nds_top_img_hide();
+    if (video_vram_sub && ui_mode >= 4) { /* menus y videos: imagen propia arriba (NDS-ARRIBA) o negro */
+        if (!nds_top_img_on)
+            nds_top_img_show();
+        if (!nds_top_img_on)
+            dmaFillWords(0, video_vram_sub, LCD_W * LCD_H);
+    }
     else if (video_vram_sub && hud_pan) { /* NDS-HUD */
         static unsigned hud_n; /* NDS-RAPIDO4: HUD de arriba 1 de cada 2 fotogramas (NDS-RAPIDO7) */
         if (hud_n++ & 1)
@@ -2931,4 +2979,153 @@ void nds_vid_audio_end(void)
     nds_mus_stop();
     free(vid_fifo);
     vid_fifo = NULL;
+}
+
+
+/* ---------- cinematicas propias (NDS-DSV) ---------- */
+/* Archivo .dsv: cabecera de 32 bytes ("DSV1", ancho, alto, fotogramas, us por fotograma, Hz, bits, canales),
+   paleta de 256 colores RGB15, y por cada fotograma: u32 largo, u16 bytes de audio, audio, imagen
+   (pares u16 saltar / u16 copiar en bloques de 8 pixeles, respecto al fotograma anterior). */
+#define DSV_REC_MAX (2 + 65536 + 4 * 6144 + LCD_W * LCD_H)
+static FILE *dsv_f;
+static u8 *dsv_frame, *dsv_rec;
+static u32 dsv_n, dsv_i, dsv_us, dsv_t0, dsv_rate, dsv_lastshow;
+static int dsv_loop;
+static long dsv_data_off;
+static u16 dsv_pal[256];
+
+static void dsv_free(void)
+{
+    if (dsv_f)
+        fclose(dsv_f);
+    dsv_f = NULL;
+    free(dsv_frame);
+    free(dsv_rec);
+    dsv_frame = dsv_rec = NULL;
+}
+
+static void dsv_palette(void)
+{
+    int i;
+    for (i = 0; i < 256; i++)
+        BG_PALETTE[i] = dsv_pal[i];
+}
+
+int nds_dsv_begin(const char *name, int loop)
+{
+    char base[40], path[96];
+    const char *p = name, *q;
+    size_t n = 0;
+    u8 h[32];
+    for (q = name; *q; q++)
+        if (*q == '\\' || *q == '/')
+            p = q + 1;
+    while (p[n] && p[n] != '.' && n < sizeof base - 1) {
+        char c = p[n];
+        base[n] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+        n++;
+    }
+    base[n] = 0;
+    snprintf(path, sizeof path, "sd:/devilutionx/dsv/%s.dsv", base);
+    dsv_f = fopen(path, "rb");
+    if (!dsv_f)
+        return 0;
+    setvbuf(dsv_f, NULL, _IOFBF, 32768);
+    if (fread(h, 1, 32, dsv_f) != 32 || memcmp(h, "DSV1", 4) != 0 || (h[4] | h[5] << 8) != LCD_W
+        || (h[6] | h[7] << 8) != LCD_H || fread(dsv_pal, 2, 256, dsv_f) != 256) {
+        dsv_free();
+        return 0;
+    }
+    dsv_n = h[8] | h[9] << 8 | h[10] << 16 | (u32)h[11] << 24;
+    dsv_us = h[12] | h[13] << 8 | h[14] << 16 | (u32)h[15] << 24;
+    dsv_rate = h[16] | h[17] << 8 | h[18] << 16 | (u32)h[19] << 24;
+    dsv_frame = (u8 *)calloc(1, LCD_W * LCD_H);
+    dsv_rec = (u8 *)malloc(DSV_REC_MAX);
+    if (!dsv_frame || !dsv_rec || dsv_n == 0 || dsv_us == 0) {
+        dsv_free();
+        return 0;
+    }
+    dsv_data_off = ftell(dsv_f);
+    dsv_loop = loop;
+    dsv_i = 0;
+    dsv_palette();
+    if (dsv_rate)
+        nds_vid_audio_begin((int)dsv_rate, 1, 8, 120);
+    dsv_t0 = SDL_GetTicks();
+    dsv_lastshow = 0;
+    return 1;
+}
+
+static int dsv_read_frame(void)
+{
+    u32 len, k, pos = 0;
+    u8 lb[4];
+    if (fread(lb, 1, 4, dsv_f) != 4)
+        return 0;
+    len = lb[0] | lb[1] << 8 | lb[2] << 16 | (u32)lb[3] << 24;
+    if (len < 2 || len > DSV_REC_MAX || fread(dsv_rec, 1, len, dsv_f) != len)
+        return 0;
+    k = dsv_rec[0] | dsv_rec[1] << 8;
+    if (2 + k > len)
+        return 0;
+    if (k && dsv_rate)
+        nds_vid_audio_push(dsv_rec + 2, (int)k);
+    k += 2;
+    while (pos < 6144) {
+        u32 skip, copy;
+        if (k + 4 > len)
+            return 0;
+        skip = dsv_rec[k] | dsv_rec[k + 1] << 8;
+        copy = dsv_rec[k + 2] | dsv_rec[k + 3] << 8;
+        k += 4;
+        pos += skip;
+        if (pos + copy > 6144 || k + copy * 8 > len)
+            return 0;
+        memcpy(dsv_frame + pos * 8, dsv_rec + k, copy * 8);
+        k += copy * 8;
+        pos += copy;
+    }
+    return 1;
+}
+
+int nds_dsv_continue(void)
+{
+    u32 now, due;
+    if (!dsv_f)
+        return 0;
+    if (dsv_i >= dsv_n) {
+        if (!dsv_loop)
+            return 0;
+        fseek(dsv_f, dsv_data_off, SEEK_SET);
+        memset(dsv_frame, 0, LCD_W * LCD_H);
+        dsv_i = 0;
+        dsv_t0 = SDL_GetTicks();
+    }
+    now = SDL_GetTicks();
+    due = dsv_t0 + (u32)((unsigned long long)dsv_i * dsv_us / 1000u);
+    if ((s32)(now - due) < 0) { /* aun no toca: esperar un poco (el juego sigue mirando los botones) */
+        u32 w = due - now;
+        SDL_Delay(w > 5 ? 5 : w);
+        return 1;
+    }
+    if (!dsv_read_frame())
+        return 0;
+    dsv_i++;
+    /* se muestra si no vamos con retraso (o si hace 4 fotogramas que no se muestra ninguno) */
+    due = dsv_t0 + (u32)((unsigned long long)dsv_i * dsv_us / 1000u);
+    if ((s32)(SDL_GetTicks() - due) < 0 || dsv_i - dsv_lastshow >= 4) {
+        dsv_lastshow = dsv_i;
+        nds_ui_frame_scaled(dsv_frame, LCD_W, LCD_W, LCD_H);
+        SDL_Flip(&video_surface);
+    }
+    return 1;
+}
+
+void nds_dsv_end(void)
+{
+    if (dsv_rate)
+        nds_vid_audio_end();
+    dsv_rate = 0;
+    dsv_free();
+    nds_ui_frame_scaled(NULL, 0, 0, 0);
 }

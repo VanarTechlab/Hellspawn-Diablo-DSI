@@ -35,6 +35,11 @@ std::vector<std::unique_ptr<UiItemBase>> vecTitleScreen;
 
 void TitleLoad()
 {
+#ifdef __NDS__ /* NDS-TITULO: pantalla de titulo propia si existe assets/ui_art/hellspawn.clx */
+	LoadBackgroundArt("ui_art\\hellspawn");
+	if (ArtBackground.has_value())
+		return;
+#endif
 	ArtBackgroundWidescreen = LoadOptionalClx("ui_art\\hf_titlew.clx");
 	if (ArtBackgroundWidescreen.has_value()) {
 		LoadBackgroundArt("ui_art\\hf_logo1", 16);
@@ -66,12 +71,14 @@ void UiTitleDialog()
 		vecTitleScreen.push_back(std::make_unique<UiImageAnimatedClx>(*ArtBackground, rect, UiFlags::AlignCenter));
 	} else {
 		UiAddBackground(&vecTitleScreen);
+		if (DiabloTitleLogo) { /* NDS-TITULO: sin logo ni copyright con la imagen propia */
 
 		vecTitleScreen.push_back(std::make_unique<UiImageAnimatedClx>(
 		    *DiabloTitleLogo, MakeSdlRect(0, uiPosition.y + 182, 0, 0), UiFlags::AlignCenter));
 
 		const SDL_Rect rect = MakeSdlRect(uiPosition.x, uiPosition.y + 410, 640, 26);
 		vecTitleScreen.push_back(std::make_unique<UiArtText>(_("Copyright © 1996-2001 Blizzard Entertainment").data(), rect, UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiSilver));
+		} /* NDS-TITULO */
 	}
 
 	bool endMenu = false;
