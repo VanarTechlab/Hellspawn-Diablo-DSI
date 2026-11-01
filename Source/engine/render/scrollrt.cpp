@@ -1378,6 +1378,7 @@ extern "C" const char *nds_prof_line(int n);
 extern "C" void nds_ui_menu_keys(int on); /* NDS-BOTONES3 */
 extern "C" void nds_ui_store(int on); /* NDS-TIENDA2 */
 extern "C" void nds_ui_dialog(int on); /* NDS-DIALOGO */
+extern "C" void nds_ui_gmenu(int on); /* NDS-MENUTRANS */
 extern "C" void nds_hud_frame(const unsigned char *panel, int pitch, int xpPermille);
 SDL_Surface *NdsUiSurface();
 namespace {
@@ -1406,6 +1407,7 @@ void DrawView(const Surface &out, Point startPosition)
 	nds_ui_menu_keys((IsPlayerInStore() || gmenu_is_active() || qtextflag || QuestLogIsOpen || HelpFlag || ChatLogFlag || DoomFlag) ? 1 : 0); /* NDS-BOTONES3 */
 	nds_ui_store((ndsUiMode == 2 && IsPlayerInStore() && !qtextflag && !IsRightPanelOpen() && !DropGoldFlag) ? 1 : 0); /* NDS-TIENDA2 */
 	nds_ui_dialog(qtextflag ? 1 : 0); /* NDS-DIALOGO */
+	nds_ui_gmenu(gmenu_is_active() ? 1 : 0); /* NDS-MENUTRANS */
 	if (ndsUiMode != 0) {
 		for (int y = 0; y < 339; y++) /* NDS-HUD: no borrar el panel (filas 339-479) */
 			std::memset(ui.at(448, y), 0, 640);

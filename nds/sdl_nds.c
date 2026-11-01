@@ -1542,6 +1542,8 @@ static inline Uint8 sharp_pick(const unsigned char *s, int pitch, int bw, int bh
 static Uint8 comp_buf[LCD_W * LCD_H] __attribute__((aligned(32)));
 static Uint8 *vback; /* NDS-RAPIDO4: pagina de VRAM donde se escribe el mundo (modo 0) */
 
+static int ui_gmenu; /* NDS-MENUTRANS: menu del juego abierto: el color 0 es transparente */
+void nds_ui_gmenu(int on) { ui_gmenu = on; }
 static int ui_dialog; /* NDS-DIALOGO: hay un dialogo (qtext): la interfaz se baja DLG_OFF filas */
 #define DLG_OFF 30
 void nds_ui_dialog(int on) { ui_dialog = on; }
@@ -1612,7 +1614,11 @@ static void nds_ui_compose(void)
             if (ui_mode == 3 && sy * 5 / 2 + 2 >= 339) /* NDS-HUD4: ni panel ni parte alta de los frascos */
                 continue;
             for (x = 0; x < LCD_W; x++)
-                d[x] = NDS_UI_SHARP ? sharp_pick(s + x * 5 / 2, ui_pitch, 2, 2) : s[x * 5 / 2];
+            { /* NDS-MENUTRANS: con el menu del juego, sin fondo negro */
+                const Uint8 v = NDS_UI_SHARP ? sharp_pick(s + x * 5 / 2, ui_pitch, 2, 2) : s[x * 5 / 2];
+                if (v || !ui_gmenu)
+                    d[x] = v;
+            }
         }
     } else if (ui_mode == 1 || ui_mode == 2) {
         int dx0 = ui_mode == 1 ? 0 : LCD_W - UI_PW;
