@@ -159,7 +159,7 @@ void RepeatPlayerAction()
 		}
 		break;
 	case PlayerActionType::AttackPlayerTarget:
-		if (PlayerUnderCursor != nullptr && !myPlayer.friendlyMode) {
+		if (PlayerUnderCursor != nullptr && !(myPlayer.friendlyMode && PlayerUnderCursor->friendlyMode)) { /* NDS-PVP */
 			if (!rangedAttack && IsMeleeAttackRedundant(myPlayer, PlayerUnderCursor->position.future))
 				break;
 			NetSendCmdParam1(true, rangedAttack ? CMD_RATTACKPID : CMD_ATTACKPID, PlayerUnderCursor->getId());
@@ -176,7 +176,7 @@ void RepeatPlayerAction()
 			CheckPlrSpell(false);
 		break;
 	case PlayerActionType::SpellPlayerTarget:
-		if (PlayerUnderCursor != nullptr && !myPlayer.friendlyMode)
+		if (PlayerUnderCursor != nullptr && !(myPlayer.friendlyMode && PlayerUnderCursor->friendlyMode)) /* NDS-PVP */
 			CheckPlrSpell(false);
 		break;
 	case PlayerActionType::OperateObject:

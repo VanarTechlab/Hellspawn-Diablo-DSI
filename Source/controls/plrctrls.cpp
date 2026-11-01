@@ -393,23 +393,35 @@ void CheckPlayerNearby()
 	const Player &myPlayer = *MyPlayer;
 
 	const SpellID spl = myPlayer._pRSpell;
+#ifndef __NDS__
 	if (myPlayer.friendlyMode && spl != SpellID::Resurrect && spl != SpellID::HealOther)
 		return;
+#endif
 
 	for (const Player &player : Players) {
 		if (&player == MyPlayer)
 			continue;
 		const int mx = player.position.future.x;
 		const int my = player.position.future.y;
+#ifdef __NDS__ /* NDS-PVP2: descartar solo si los dos estan en amistoso (salvo curar/resucitar); sin exigir luz */
+		if (myPlayer.friendlyMode && player.friendlyMode && spl != SpellID::Resurrect && spl != SpellID::HealOther)
+			continue;
+		if (dPlayer[mx][my] == 0
+#else
 		if (dPlayer[mx][my] == 0
 		    || !IsTileLit(player.position.future)
+#endif
 		    || (player.hasNoLife() && spl != SpellID::Resurrect))
 			continue;
 
 		if (myPlayer.UsesRangedWeapon() || HasRangedSpell() || spl == SpellID::HealOther) {
 			newDdistance = GetDistanceRanged(player.position.future);
 		} else {
+#ifdef __NDS__ /* NDS-PVP3: cuerpo a cuerpo, buscar jugadores hasta 10 casillas (con 0 nunca encontraba a nadie) */
+			newDdistance = GetDistance(player.position.future, 10);
+#else
 			newDdistance = GetDistance(player.position.future, distance);
+#endif
 			if (newDdistance == 0)
 				continue;
 		}
@@ -519,7 +531,11 @@ void Interact()
 
 	const Player &myPlayer = *MyPlayer;
 
+#ifdef __NDS__ /* NDS-ATAQUE: en la mazmorra A ataca siempre; sin objetivo, hacia donde mira (con arco dispara lejos) */
+	if (leveltype != DTYPE_TOWN && (IsStandingGround() || (pcursmonst == -1 && PlayerUnderCursor == nullptr))) {
+#else
 	if (leveltype != DTYPE_TOWN && IsStandingGround()) {
+#endif
 		Direction pdir = myPlayer._pdir;
 		const AxisDirection moveDir = GetMoveDirection();
 		const bool motion = moveDir.x != AxisDirectionX_NONE || moveDir.y != AxisDirectionY_NONE;
@@ -547,7 +563,7 @@ void Interact()
 		return;
 	}
 
-	if (leveltype != DTYPE_TOWN && PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !myPlayer.friendlyMode) {
+	if (leveltype != DTYPE_TOWN && PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !(myPlayer.friendlyMode && PlayerUnderCursor->friendlyMode)) { /* NDS-PVP */
 		NetSendCmdParam1(true, myPlayer.UsesRangedWeapon() ? CMD_RATTACKPID : CMD_ATTACKPID, PlayerUnderCursor->getId());
 		LastPlayerAction = PlayerActionType::AttackPlayerTarget;
 		return;

@@ -293,7 +293,11 @@ void PressControllerButton(ControllerButton button)
 			gamemenu_on();
 			return;
 		case devilution::ControllerButton_BUTTON_DPAD_DOWN:
+#ifdef __NDS__ /* NDS-LIBRO: START + ABAJO abre el libro de hechizos (el mapa ya se ve siempre arriba) */
+			ProcessGameAction(GameAction { GameActionType_TOGGLE_SPELL_BOOK });
+#else
 			CycleAutomapType();
+#endif
 			return;
 		case devilution::ControllerButton_BUTTON_DPAD_LEFT:
 			ProcessGameAction(GameAction { GameActionType_TOGGLE_CHARACTER_INFO });

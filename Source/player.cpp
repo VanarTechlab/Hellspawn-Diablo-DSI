@@ -797,7 +797,7 @@ bool DoAttack(Player &player)
 
 		if (monster != nullptr) {
 			didhit = PlrHitMonst(player, *monster);
-		} else if (PlayerAtPosition(position) != nullptr && !player.friendlyMode) {
+		} else if (PlayerAtPosition(position) != nullptr && !(player.friendlyMode && PlayerAtPosition(position)->friendlyMode)) { /* NDS-PVP */
 			didhit = PlrHitPlr(player, *PlayerAtPosition(position));
 		} else {
 			Object *object = FindObjectAtPosition(position, false);
@@ -2461,8 +2461,28 @@ void Player::_addExperience(uint32_t experience, int levelDelta)
 	NetSendCmdParam1(false, CMD_PLRLEVEL, getCharacterLevel());
 }
 
+Point NdsKillPos; /* NDS-XPCOMPARTIDA: casilla del enemigo que acaba de morir */
 void AddPlrMonstExper(int lvl, unsigned exp, char pmask)
 {
+#ifdef __NDS__ /* NDS-XPCOMPARTIDA: con todos en amistoso, reparte con los que esten cerca (10 casillas) en el mismo nivel */
+	if (gbIsMultiplayer && pmask != 0) {
+		bool ndsAllFriendly = true;
+		for (size_t i = 0; i < Players.size(); i++)
+			if (((1 << i) & pmask) != 0 && !Players[i].friendlyMode)
+				ndsAllFriendly = false;
+		if (ndsAllFriendly) {
+			for (size_t i = 0; i < Players.size(); i++) {
+				const Player &ndsPl = Players[i];
+				if (!ndsPl.plractive || !ndsPl.friendlyMode || !ndsPl.isOnActiveLevel())
+					continue;
+				const int ndsDx = std::abs(ndsPl.position.tile.x - NdsKillPos.x);
+				const int ndsDy = std::abs(ndsPl.position.tile.y - NdsKillPos.y);
+				if (std::max(ndsDx, ndsDy) <= 10)
+					pmask = static_cast<char>(pmask | (1 << i));
+			}
+		}
+	}
+#endif
 	unsigned totplrs = 0;
 	for (size_t i = 0; i < Players.size(); i++) {
 		if (((1 << i) & pmask) != 0) {
@@ -3219,7 +3239,7 @@ void CheckPlrSpell(bool isShiftHeld, SpellID spellID, SpellType spellType)
 	} else if (pcursmonst != -1 && !isShiftHeld) {
 		LastPlayerAction = PlayerActionType::SpellMonsterTarget;
 		NetSendCmdParam4(true, CMD_SPELLID, pcursmonst, static_cast<int8_t>(spellID), static_cast<uint8_t>(spellType), spellFrom);
-	} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !isShiftHeld && !myPlayer.friendlyMode) {
+	} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !isShiftHeld && !(myPlayer.friendlyMode && PlayerUnderCursor->friendlyMode)) { /* NDS-PVP */
 		LastPlayerAction = PlayerActionType::SpellPlayerTarget;
 		NetSendCmdParam4(true, CMD_SPELLPID, PlayerUnderCursor->getId(), static_cast<int8_t>(spellID), static_cast<uint8_t>(spellType), spellFrom);
 	} else {

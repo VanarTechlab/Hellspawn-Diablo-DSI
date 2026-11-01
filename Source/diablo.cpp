@@ -283,7 +283,7 @@ void LeftMouseCmd(bool bShift)
 				LastPlayerAction = PlayerActionType::AttackMonsterTarget;
 				NetSendCmdParam1(true, CMD_RATTACKID, pcursmonst);
 			}
-		} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !myPlayer.friendlyMode) {
+		} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !(myPlayer.friendlyMode && PlayerUnderCursor->friendlyMode)) { /* NDS-PVP */
 			LastPlayerAction = PlayerActionType::AttackPlayerTarget;
 			NetSendCmdParam1(true, CMD_RATTACKPID, PlayerUnderCursor->getId());
 		}
@@ -303,7 +303,7 @@ void LeftMouseCmd(bool bShift)
 		} else if (pcursmonst != -1) {
 			LastPlayerAction = PlayerActionType::AttackMonsterTarget;
 			NetSendCmdParam1(true, CMD_ATTACKID, pcursmonst);
-		} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !myPlayer.friendlyMode) {
+		} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !(myPlayer.friendlyMode && PlayerUnderCursor->friendlyMode)) { /* NDS-PVP */
 			LastPlayerAction = PlayerActionType::AttackPlayerTarget;
 			NetSendCmdParam1(true, CMD_ATTACKPID, PlayerUnderCursor->getId());
 		}
@@ -2925,7 +2925,7 @@ bool TryIconCurs()
 			NetSendCmdLocParam4(true, CMD_SPELLXYD, cursPosition, static_cast<int8_t>(spellID), static_cast<uint8_t>(spellType), static_cast<uint16_t>(sd), spellFrom);
 		} else if (pcursmonst != -1 && leveltype != DTYPE_TOWN) {
 			NetSendCmdParam4(true, CMD_SPELLID, pcursmonst, static_cast<int8_t>(spellID), static_cast<uint8_t>(spellType), spellFrom);
-		} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !myPlayer.friendlyMode) {
+		} else if (PlayerUnderCursor != nullptr && !PlayerUnderCursor->hasNoLife() && !(myPlayer.friendlyMode && PlayerUnderCursor->friendlyMode)) { /* NDS-PVP */
 			NetSendCmdParam4(true, CMD_SPELLPID, PlayerUnderCursor->getId(), static_cast<int8_t>(spellID), static_cast<uint8_t>(spellType), spellFrom);
 		} else {
 			NetSendCmdLocParam3(true, CMD_SPELLXY, cursPosition, static_cast<int8_t>(spellID), static_cast<uint8_t>(spellType), spellFrom);

@@ -4,6 +4,9 @@
  * Implementation of functionality for rendering the dungeons, monsters and calling other render routines.
  */
 #include "engine/render/scrollrt.h"
+#ifdef __NDS__
+#include "msg.h" /* NDS-AMISTAD: NetSendCmd */
+#endif
 
 #include <cmath>
 #include <cstring>
@@ -1380,6 +1383,8 @@ extern "C" void nds_ui_store(int on); /* NDS-TIENDA2 */
 extern "C" void nds_ui_dialog(int on); /* NDS-DIALOGO */
 extern "C" void nds_ui_gmenu(int on); /* NDS-MENUTRANS */
 extern "C" void nds_ui_wide(int w); /* NDS-PANELANCHO */
+extern "C" void nds_ui_friendly(int f); /* NDS-AMISTAD */
+extern "C" int nds_take_friendly(void);
 extern "C" void nds_hud_frame(const unsigned char *panel, int pitch, int xpPermille);
 SDL_Surface *NdsUiSurface();
 namespace {
@@ -1410,6 +1415,9 @@ void DrawView(const Surface &out, Point startPosition)
 	nds_ui_dialog(qtextflag ? 1 : 0); /* NDS-DIALOGO */
 	nds_ui_gmenu(gmenu_is_active() ? 1 : 0); /* NDS-MENUTRANS */
 	nds_ui_wide(((ndsUiMode == 1 && CharFlag) ? 1 : 0) | ((ndsUiMode == 2 && SpellbookFlag) ? 2 : 0)); /* NDS-PANELANCHO */
+	nds_ui_friendly(gbIsMultiplayer ? (MyPlayer->friendlyMode ? 1 : 2) : 0); /* NDS-AMISTAD */
+	if (gbIsMultiplayer && nds_take_friendly() != 0)
+		NetSendCmd(true, CMD_FRIENDLYMODE);
 	if (ndsUiMode != 0) {
 		for (int y = 0; y < 339; y++) /* NDS-HUD: no borrar el panel (filas 339-479) */
 			std::memset(ui.at(448, y), 0, 640);

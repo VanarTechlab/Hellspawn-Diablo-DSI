@@ -12,6 +12,12 @@
 #include "player.h"
 #include "utils/algorithm/container.hpp"
 
+#ifdef __NDS__
+#define NDS_AUTOGOLD true /* NDS-ORO: el oro se recoge siempre al pasar cerca */
+#else
+#define NDS_AUTOGOLD (*GetOptions().Gameplay.autoGoldPickup)
+#endif
+
 namespace devilution {
 namespace {
 
@@ -43,7 +49,7 @@ int NumMiscItemsInInv(int iMiscId)
 
 bool DoPickup(Item item)
 {
-	if (item._itype == ItemType::Gold && *GetOptions().Gameplay.autoGoldPickup && HasRoomForGold())
+	if (item._itype == ItemType::Gold && NDS_AUTOGOLD && HasRoomForGold())
 		return true;
 
 	if (item._itype == ItemType::Misc

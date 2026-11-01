@@ -1547,6 +1547,23 @@ static int ui_wide; /* NDS-PANELANCHO: 1 = personaje (izquierda), 2 = libro de h
 void nds_ui_wide(int w) { ui_wide = w; }
 static int ui_gmenu; /* NDS-MENUTRANS: menu del juego abierto: el color 0 es transparente */
 void nds_ui_gmenu(int on) { ui_gmenu = on; }
+static Uint8 dark_lut[256]; /* NDS-TIENDA6: cada color de la paleta oscurecido al 35% */
+static void dark_build(void)
+{
+    int i, j;
+    for (i = 0; i < 256; i++) {
+        const u16 c = BG_PALETTE[i];
+        const int r = (c & 31) * 35 / 100, g = ((c >> 5) & 31) * 35 / 100, b = ((c >> 10) & 31) * 35 / 100;
+        int best = 0, bd = 1 << 30;
+        for (j = 0; j < 256; j++) {
+            const u16 cc = BG_PALETTE[j];
+            const int dr = (cc & 31) - r, dg = ((cc >> 5) & 31) - g, db = ((cc >> 10) & 31) - b;
+            const int dd = dr * dr + dg * dg + db * db;
+            if (dd < bd) { bd = dd; best = j; }
+        }
+        dark_lut[i] = (Uint8)best;
+    }
+}
 static int ui_dialog; /* NDS-DIALOGO: hay un dialogo (qtext): la interfaz se baja DLG_OFF filas */
 #define DLG_OFF 30
 void nds_ui_dialog(int on) { ui_dialog = on; }
@@ -1556,7 +1573,7 @@ void nds_ui_store(int on) { ui_store = on; }
 #define ST_SY 20
 #define ST_SH 318 /* filas de origen (20-337) que ocupan las 192 de la tactil */
 #define ST_SW 290 /* NDS-TIENDA3: columnas de origen (336-625) */
-#define ST_DW 215 /* ...que ocupan 215 de ancho en la tactil (letra un 23% mas ancha) */
+#define ST_DW 256 /* NDS-TIENDA5: recuadro de tienda/NPC a todo el ancho (antes 215) */
 void nds_ui_frame(const unsigned char *pixels, int pitch, int mode)
 {
     ui_pix = pixels;
@@ -1627,10 +1644,10 @@ static void nds_ui_compose(void)
         int dx0 = ui_mode == 1 ? 0 : LCD_W - UI_PW;
         int sx0 = ui_mode == 1 ? 0 : 320;
         if ((ui_mode == 1 && (ui_wide & 1)) || (ui_mode == 2 && (ui_wide & 2))) { /* NDS-PANELANCHO: 215 de ancho, pixel mas brillante de cada 2x2 */
-            const int wx0 = ui_mode == 1 ? 0 : LCD_W - ST_DW;
-            const int dw = ui_mode == 1 ? LCD_W : ST_DW; /* NDS-PERSONAJE2: el personaje a todo el ancho */
+            const int wx0 = 0; /* NDS-LIBRO2: el libro tambien a todo el ancho */
+            const int dw = LCD_W; /* NDS-PERSONAJE2 / LIBRO2: a todo el ancho */
             for (y = 0; y < LCD_H; y++) {
-                const int sy = ui_mode == 1 ? CH_SPLIT + y * (338 - CH_SPLIT) / LCD_H : y * 338 / LCD_H; /* NDS-PERSONAJE7a: hasta abajo del todo */
+                const int sy = ui_mode == 1 ? CH_SPLIT + y * (338 - CH_SPLIT) / LCD_H : 14 + y * 336 / LCD_H; /* NDS-PERSONAJE7a / LIBRO2: libro filas 14-349 (pestanas enteras) */
                 const unsigned char *s0, *s1;
                 Uint8 *d;
                 if (ui_mode == 1 && y >= LCD_H) { /* NDS-PERSONAJE7a: ya no sobran filas */ /* NDS-PERSONAJE4: filas sobrantes en negro */
@@ -1641,7 +1658,7 @@ static void nds_ui_compose(void)
                 s1 = s0 + ui_pitch;
                 d = comp_buf + y * LCD_W + wx0;
                 for (x = 0; x < dw; x++) {
-                    const int sx = x * 320 / dw;
+                    const int sx = ui_mode == 1 ? x * 320 / dw : 4 + x * 312 / dw; /* NDS-LIBRO2: sin 4 columnas de borde */
                     Uint8 a = s0[sx], b = s0[sx + 1], c = s1[sx], e = s1[sx + 1];
                     if (pal_lum[b] > pal_lum[a]) a = b;
                     if (pal_lum[c] > pal_lum[a]) a = c;
@@ -1652,17 +1669,19 @@ static void nds_ui_compose(void)
             return;
         }
         if (ui_mode == 2 && ui_store) { /* NDS-TIENDA2/3: recuadro de la tienda ampliado, el pixel mas brillante de cada 2x2 */
+            { static int dark_ok; static unsigned dark_tick; /* NDS-TIENDA6 */
+              if (!dark_ok || ++dark_tick >= 120) { dark_build(); dark_tick = 0; dark_ok = 1; } }
             for (y = 0; y < LCD_H; y++) {
                 const unsigned char *s0 = ui_pix + (ST_SY + y * ST_SH / LCD_H) * ui_pitch + ST_SX;
                 const unsigned char *s1 = s0 + ui_pitch;
-                Uint8 *d = comp_buf + y * LCD_W + (LCD_W - ST_DW);
+                Uint8 *d = comp_buf + y * LCD_W + (LCD_W - ST_DW) / 2; /* NDS-TIENDA4: recuadro centrado */
                 for (x = 0; x < ST_DW; x++) {
                     const int sx = x * ST_SW / ST_DW;
                     Uint8 a = s0[sx], b = s0[sx + 1], c = s1[sx], e = s1[sx + 1];
                     if (pal_lum[b] > pal_lum[a]) a = b;
                     if (pal_lum[c] > pal_lum[a]) a = c;
                     if (pal_lum[e] > pal_lum[a]) a = e;
-                    d[x] = a;
+                    d[x] = a ? a : dark_lut[d[x]]; /* NDS-TIENDA6: fondo negro = mundo oscurecido */
                 }
             }
             return;
@@ -1692,14 +1711,14 @@ static void nds_touch_map(u16 *px, u16 *py)
     } else if (ui_mode == 1 && (ui_wide & 1)) { /* NDS-PANELANCHO / PERSONAJE2: personaje a toda la tactil */
         x = UI_X0 + x * 320 / LCD_W;
         y = CH_SPLIT + y * (338 - CH_SPLIT) / LCD_H; /* NDS-PERSONAJE7a */
-    } else if (ui_mode == 2 && (ui_wide & 2) && x >= LCD_W - ST_DW) {
-        x = UI_X0 + 320 + (x - (LCD_W - ST_DW)) * 320 / ST_DW;
-        y = y * 338 / LCD_H;
+    } else if (ui_mode == 2 && (ui_wide & 2)) { /* NDS-LIBRO2 */
+        x = UI_X0 + 320 + 4 + x * 312 / LCD_W;
+        y = 14 + y * 336 / LCD_H;
     } else if (ui_mode == 1 && x < UI_PW) {
         x = UI_X0 + x * 11 / 6;
         y = y * 11 / 6;
-    } else if (ui_mode == 2 && ui_store && x >= LCD_W - ST_DW) { /* NDS-TIENDA2/3 */
-        x = UI_X0 + ST_SX + (x - (LCD_W - ST_DW)) * ST_SW / ST_DW;
+    } else if (ui_mode == 2 && ui_store && x >= (LCD_W - ST_DW) / 2 && x < (LCD_W - ST_DW) / 2 + ST_DW) { /* NDS-TIENDA2/3/4 */
+        x = UI_X0 + ST_SX + (x - (LCD_W - ST_DW) / 2) * ST_SW / ST_DW;
         y = ST_SY + y * ST_SH / LCD_H;
     } else if (ui_mode == 2 && x >= LCD_W - UI_PW) {
         x = UI_X0 + 320 + (x - (LCD_W - UI_PW)) * 11 / 6;
@@ -2738,6 +2757,50 @@ static void nds_top_img_hide(void)
     nds_top_img_tried = 0; /* la proxima vez que se entre en los menus se vuelve a mostrar */
 }
 
+/* NDS-AMISTAD: boton PAZ/PVP en la esquina de la tactil (solo multijugador) */
+static int ui_friendly; /* 0 = sin multijugador, 1 = amistoso, 2 = agresivo */
+static volatile int nds_friendly_req;
+void nds_ui_friendly(int f) { ui_friendly = f; }
+int nds_take_friendly(void)
+{
+    const int r = nds_friendly_req;
+    nds_friendly_req = 0;
+    return r;
+}
+#define FB_X (LCD_W - 32)
+#define FB_Y 2
+#define FB_W 30
+#define FB_H 13
+static void fb_draw(Uint8 *dst)
+{
+    static Uint8 rows[LCD_W * (FB_Y + FB_H)];
+    int x, y, i;
+    const char *t;
+    Uint8 cBg, cCol;
+    if (!ui_friendly || !dst)
+        return;
+    cBg = (Uint8)vk_near(2, 2, 2);
+    cCol = ui_friendly == 1 ? (Uint8)vk_near(8, 26, 10) : (Uint8)vk_near(30, 6, 6);
+    for (y = 0; y < FB_Y + FB_H; y++) { /* leer de la VRAM de 2 en 2 bytes */
+        const u16 *sp = (const u16 *)(dst + y * LCD_W);
+        u16 *dp = (u16 *)(rows + y * LCD_W);
+        for (x = 0; x < LCD_W / 2; x++)
+            dp[x] = sp[x];
+    }
+    for (y = 0; y < FB_H; y++)
+        for (x = 0; x < FB_W; x++)
+            rows[(FB_Y + y) * LCD_W + FB_X + x] = (y == 0 || y == FB_H - 1 || x == 0 || x == FB_W - 1) ? cCol : cBg;
+    t = ui_friendly == 1 ? "PAZ" : "PVP";
+    for (i = 0; i < 3; i++)
+        fnt_char(rows, FB_X + 3 + i * 8, FB_Y + 3, (unsigned char)t[i], cCol);
+    for (y = FB_Y; y < FB_Y + FB_H; y++) { /* escribir en la VRAM de 2 en 2 bytes */
+        const u16 *sp = (const u16 *)(rows + y * LCD_W);
+        u16 *dp = (u16 *)(dst + y * LCD_W);
+        for (x = 0; x < LCD_W / 2; x++)
+            dp[x] = sp[x];
+    }
+}
+
 int SDL_Flip(SDL_Surface *s)
 {
     hb_flip++;
@@ -2758,6 +2821,7 @@ int SDL_Flip(SDL_Surface *s)
         if (ui_mode == 0) {
             vback = back;
             nds_ui_compose(); /* el mundo va directo a la VRAM, 4 pixeles por escritura */
+            fb_draw(back); /* NDS-AMISTAD */
             vback = NULL;
         } else {
             DC_FlushRange(video_pixels, SCREEN_BYTES);
@@ -3026,6 +3090,18 @@ static void push_button(int down, int x, int y)
     evq_push(&e);
 }
 
+static int fb_touch; /* NDS-AMISTAD: el lapiz esta sobre el boton PAZ/PVP */
+static int fb_check(const touchPosition *t)
+{
+    if (fb_touch)
+        return 1;
+    if (!touch_down && ui_friendly && ui_mode == 0 && t->px >= FB_X && t->py < FB_Y + FB_H + 2) {
+        fb_touch = 1;
+        nds_friendly_req = 1;
+        return 1;
+    }
+    return 0;
+}
 /* NDS-ATAJO */
 static volatile int nds_warp_req;
 int nds_take_warp(void)
@@ -3044,6 +3120,8 @@ static void input_poll(void)
     scanKeys();
     held = keysHeld();
     changed = held ^ prev_held;
+    if (!(held & KEY_TOUCH)) /* NDS-AMISTAD */
+        fb_touch = 0;
     { /* NDS-ATAJO: L+R mantenidos 2 s piden bajar un nivel */
         static Uint32 lr_since;
         static int lr_done;
@@ -3091,7 +3169,7 @@ static void input_poll(void)
 
     if (held & KEY_TOUCH) {
         touchRead(&t);
-        if (t.px != 0 || t.py != 0) { /* (0,0) = lectura invalida */
+        if ((t.px != 0 || t.py != 0) && !fb_check(&t)) { /* (0,0) = lectura invalida; NDS-AMISTAD: el boton no es un clic */
             nds_touch_map(&t.px, &t.py);
             if (!touch_down) {
                 touch_down = 1;

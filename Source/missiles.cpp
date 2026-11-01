@@ -350,7 +350,7 @@ bool MonsterMHit(const Player &player, Monster &monster, int mindam, int maxdam,
 
 bool Plr2PlrMHit(const Player &player, Player &target, int mindam, int maxdam, int dist, MissileID mtype, DamageType damageType, bool shift, bool *blocked)
 {
-	if (sgGameInitInfo.bFriendlyFire == 0 && player.friendlyMode)
+	if (player.friendlyMode && target.friendlyMode) /* NDS-PVP: sin dano solo si los dos estan en amistoso */
 		return false;
 
 	*blocked = false;
