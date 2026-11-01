@@ -1542,6 +1542,9 @@ static inline Uint8 sharp_pick(const unsigned char *s, int pitch, int bw, int bh
 static Uint8 comp_buf[LCD_W * LCD_H] __attribute__((aligned(32)));
 static Uint8 *vback; /* NDS-RAPIDO4: pagina de VRAM donde se escribe el mundo (modo 0) */
 
+#define CH_SPLIT 105 /* NDS-PERSONAJE4 (antes 111/118): filas 0-117 del panel del personaje arriba, 118-337 en la tactil */
+static int ui_wide; /* NDS-PANELANCHO: 1 = personaje (izquierda), 2 = libro de hechizos (derecha) mas anchos */
+void nds_ui_wide(int w) { ui_wide = w; }
 static int ui_gmenu; /* NDS-MENUTRANS: menu del juego abierto: el color 0 es transparente */
 void nds_ui_gmenu(int on) { ui_gmenu = on; }
 static int ui_dialog; /* NDS-DIALOGO: hay un dialogo (qtext): la interfaz se baja DLG_OFF filas */
@@ -1623,6 +1626,31 @@ static void nds_ui_compose(void)
     } else if (ui_mode == 1 || ui_mode == 2) {
         int dx0 = ui_mode == 1 ? 0 : LCD_W - UI_PW;
         int sx0 = ui_mode == 1 ? 0 : 320;
+        if ((ui_mode == 1 && (ui_wide & 1)) || (ui_mode == 2 && (ui_wide & 2))) { /* NDS-PANELANCHO: 215 de ancho, pixel mas brillante de cada 2x2 */
+            const int wx0 = ui_mode == 1 ? 0 : LCD_W - ST_DW;
+            const int dw = ui_mode == 1 ? LCD_W : ST_DW; /* NDS-PERSONAJE2: el personaje a todo el ancho */
+            for (y = 0; y < LCD_H; y++) {
+                const int sy = ui_mode == 1 ? CH_SPLIT + y * (338 - CH_SPLIT) / LCD_H : y * 338 / LCD_H; /* NDS-PERSONAJE7a: hasta abajo del todo */
+                const unsigned char *s0, *s1;
+                Uint8 *d;
+                if (ui_mode == 1 && y >= LCD_H) { /* NDS-PERSONAJE7a: ya no sobran filas */ /* NDS-PERSONAJE4: filas sobrantes en negro */
+                    memset(comp_buf + y * LCD_W, 0, LCD_W);
+                    continue;
+                }
+                s0 = ui_pix + sy * ui_pitch + sx0;
+                s1 = s0 + ui_pitch;
+                d = comp_buf + y * LCD_W + wx0;
+                for (x = 0; x < dw; x++) {
+                    const int sx = x * 320 / dw;
+                    Uint8 a = s0[sx], b = s0[sx + 1], c = s1[sx], e = s1[sx + 1];
+                    if (pal_lum[b] > pal_lum[a]) a = b;
+                    if (pal_lum[c] > pal_lum[a]) a = c;
+                    if (pal_lum[e] > pal_lum[a]) a = e;
+                    d[x] = a;
+                }
+            }
+            return;
+        }
         if (ui_mode == 2 && ui_store) { /* NDS-TIENDA2/3: recuadro de la tienda ampliado, el pixel mas brillante de cada 2x2 */
             for (y = 0; y < LCD_H; y++) {
                 const unsigned char *s0 = ui_pix + (ST_SY + y * ST_SH / LCD_H) * ui_pitch + ST_SX;
@@ -1661,6 +1689,12 @@ static void nds_touch_map(u16 *px, u16 *py)
     if ((ui_mode == 3 && y * 5 / 2 + 2 < 339) || ui_mode == 4) {
         x = UI_X0 + x * 5 / 2;
         y = y * 5 / 2;
+    } else if (ui_mode == 1 && (ui_wide & 1)) { /* NDS-PANELANCHO / PERSONAJE2: personaje a toda la tactil */
+        x = UI_X0 + x * 320 / LCD_W;
+        y = CH_SPLIT + y * (338 - CH_SPLIT) / LCD_H; /* NDS-PERSONAJE7a */
+    } else if (ui_mode == 2 && (ui_wide & 2) && x >= LCD_W - ST_DW) {
+        x = UI_X0 + 320 + (x - (LCD_W - ST_DW)) * 320 / ST_DW;
+        y = y * 338 / LCD_H;
     } else if (ui_mode == 1 && x < UI_PW) {
         x = UI_X0 + x * 11 / 6;
         y = y * 11 / 6;
@@ -2183,6 +2217,26 @@ static void hud_flask(int px, int dx)
     }
 }
 
+static Uint8 chr_bg[LCD_W * LCD_H]; /* NDS-PERSONAJE7b: fondo limpio del panel del personaje, ya al 80% */
+static int chr_bg_ok;
+void nds_chr_bg(const unsigned char *p, int pitch, int w, int h)
+{
+    int x, y;
+    if (!p || w < 320 || h < 240)
+        return;
+    for (y = 0; y < LCD_H; y++) {
+        const unsigned char *src = p + (y * 5 / 4) * pitch;
+        Uint8 *d = chr_bg + y * LCD_W;
+        for (x = 0; x < LCD_W; x++)
+            d[x] = src[x * 5 / 4];
+    }
+    chr_bg_ok = 1;
+}
+static inline int hud_mir(int v, int n) /* NDS-PERSONAJE6: repeticion en espejo */
+{
+    v %= 2 * n;
+    return v < n ? v : 2 * n - 1 - v;
+}
 static void nds_hud_compose(void)
 {
     int x, y, white = 240, dark = 240;
@@ -2200,6 +2254,51 @@ static void nds_hud_compose(void)
     /* NDS-HUD3: minimapa arriba (256x96 de la esquina de la superficie de interfaz) */
     {
         const unsigned char *map = hud_pan - 352 * hud_pitch - 448;
+        if (ui_mode == 1 && (ui_wide & 1)) { /* NDS-PERSONAJE5: arriba todo piedra con la cabecera del panel (nombre, clase, nivel, experiencia) */
+            const unsigned char *cp = hud_pan - 352 * hud_pitch;
+            for (y = 0; y < LCD_H; y++) { /* NDS-PERSONAJE6: piedra en espejo + bordes + 3 filas de recuadros centradas */
+                int sy = -1, band = 1;
+                Uint8 *d = top_buf + y * LCD_W;
+                if (y < 8)
+                    sy = y * 5 / 4;                   /* borde de arriba */
+                else if (y >= 31 && y < 56)
+                    sy = 11 + (y - 31) * 5 / 4;       /* nombre y clase */
+                else if (y >= 85 && y < 109)
+                    sy = 49 + (y - 85) * 5 / 4;       /* nivel y experiencia */
+                else if (y >= 139 && y < 162)
+                    sy = 79 + (y - 139) * 5 / 4;      /* siguiente nivel */
+                else
+                    band = 0;
+                hud_touch(d, LCD_W);
+                if (!band && chr_bg_ok) { /* NDS-PERSONAJE7b: la misma piedra que abajo */
+                    memcpy(d, chr_bg + y * LCD_W, LCD_W);
+                    continue;
+                }
+                for (x = 0; x < LCD_W; x++) {
+                    int sx, ry;
+                    const unsigned char *s0, *s1;
+                    Uint8 a, b, c, e;
+                    if (band) {
+                        sx = x * 5 / 4;
+                        ry = sy;
+                    } else if (x < 7 || x >= LCD_W - 7) { /* bordes laterales del panel */
+                        sx = x * 5 / 4;
+                        ry = 120 + hud_mir(y * 5 / 4, 180);
+                    } else {                               /* piedra limpia repetida en espejo */
+                        sx = 14 + hud_mir(x * 5 / 4, 100);
+                        ry = 82 + hud_mir(y * 5 / 4, 22);
+                    }
+                    s0 = cp + ry * hud_pitch;
+                    s1 = s0 + hud_pitch;
+                    a = s0[sx]; b = s0[sx + 1]; c = s1[sx]; e = s1[sx + 1];
+                    if (pal_lum[b] > pal_lum[a]) a = b;
+                    if (pal_lum[c] > pal_lum[a]) a = c;
+                    if (pal_lum[e] > pal_lum[a]) a = e;
+                    d[x] = a;
+                }
+            }
+            return; /* sin HUD mientras el panel del personaje esta abierto */
+        } else
         for (y = 0; y < 111; y++) /* NDS-HUD6d: minimapa 256x111 hasta encima de las bolas */
             memcpy(top_buf + y * LCD_W, map + y * hud_pitch, LCD_W);
     }

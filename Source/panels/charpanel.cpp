@@ -269,11 +269,17 @@ void DrawStatButtons(const Surface &out)
 
 } // namespace
 
+#ifdef __NDS__
+extern "C" void nds_chr_bg(const unsigned char *p, int pitch, int w, int h); /* NDS-PERSONAJE7b */
+#endif
 std::expected<void, std::string> LoadCharPanel()
 {
 	ASSIGN_OR_RETURN(OptionalOwnedClxSpriteList background, LoadClxWithStatus("data\\charbg.clx"));
 	const OwnedSurface out((*background)[0].width(), (*background)[0].height());
 	RenderClxSprite(out, (*background)[0], { 0, 0 });
+#ifdef __NDS__ /* NDS-PERSONAJE7b: copia del fondo limpio para la pantalla de arriba */
+	nds_chr_bg(out.at(0, 0), static_cast<int>(out.pitch()), out.w(), out.h());
+#endif
 	background = std::nullopt;
 
 	{

@@ -472,7 +472,14 @@ void DrawInfoBox(const Surface &out)
 			ndsColor = 2;
 		else if (HasAnyOf(InfoColor, UiFlags::ColorRed))
 			ndsColor = 3;
-		const std::string ndsText(InfoString.str());
+		std::string ndsText(InfoString.str());
+		if (ndsText.empty() && CharFlag && InspectPlayer != nullptr) { /* NDS-PERSONAJE4: cabecera del personaje en el cuadro del HUD */
+			const Player &ndsP = *InspectPlayer;
+			ndsText = StrCat(ndsP._pName, "\n", ndsP.getClassName(), " - Level ", ndsP.getCharacterLevel(), "\nExp ", FormatInteger(ndsP._pExperience));
+			if (!ndsP.isMaxCharacterLevel())
+				ndsText += StrCat("/", FormatInteger(ndsP.getNextExperienceThreshold()));
+			ndsColor = 2;
+		}
 		nds_info_text(ndsText.empty() ? nullptr : ndsText.c_str(), ndsColor);
 	}
 #endif
