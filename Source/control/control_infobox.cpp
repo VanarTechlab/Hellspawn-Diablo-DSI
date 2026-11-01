@@ -447,6 +447,9 @@ void DrawInfoBox(const Surface &out)
 		PrintInfo(out);
 }
 
+#ifdef __NDS__
+extern "C" void nds_item_text(const char *s, int color); /* NDS-ITEMTXT */
+#endif
 void DrawFloatingInfoBox(const Surface &out)
 {
 	if (pcursinvitem == -1 && pcursstashitem == StashStruct::EmptyCell && pcursstoreitem == -1 && pcursstorebtn == -1) {
@@ -454,8 +457,22 @@ void DrawFloatingInfoBox(const Surface &out)
 		InfoColor = UiFlags::ColorWhite;
 	}
 
+#ifdef __NDS__ /* NDS-ITEMTXT: la descripcion se escribe a tamano real en la pantalla de arriba */
+	{
+		int ndsColor = 0;
+		if (HasAnyOf(InfoColor, UiFlags::ColorBlue))
+			ndsColor = 1;
+		else if (HasAnyOf(InfoColor, UiFlags::ColorWhitegold | UiFlags::ColorGold))
+			ndsColor = 2;
+		else if (HasAnyOf(InfoColor, UiFlags::ColorRed))
+			ndsColor = 3;
+		const std::string ndsText(FloatingInfoString.str());
+		nds_item_text(ndsText.empty() ? nullptr : ndsText.c_str(), ndsColor);
+	}
+#else
 	if (!FloatingInfoString.empty())
 		PrintFloatingInfo(out);
+#endif
 }
 
 } // namespace devilution

@@ -4094,8 +4094,28 @@ bool DoOil(Player &player, int cii)
 	}
 }
 
+#ifdef __NDS__
+extern "C" void nds_item_text(const char *s, int color); /* NDS-ITEMTXT2 */
+#endif
 void DrawUniqueInfo(const Surface &out)
 {
+#ifdef __NDS__ /* NDS-ITEMTXT2: el panel de unico se escribe a tamano real en la pantalla de arriba */
+	{
+		const UniqueItem &ndsU = UniqueItems[curruitem._iUid];
+		std::string ndsText(InfoString.str());
+		if (ndsText.empty())
+			ndsText = std::string(_(ndsU.UIName));
+		for (const auto &power : ndsU.powers) {
+			if (power.type == IPL_INVALID)
+				break;
+			ndsText += '\n';
+			ndsText += PrintItemPower(power.type, curruitem);
+		}
+		nds_item_text(ndsText.c_str(), 2);
+		(void)out;
+		return;
+	}
+#endif
 	const Point position = DrawUniqueInfoWindow(out);
 
 	Rectangle rect { position + Displacement { 32, 56 }, { 257, 0 } };

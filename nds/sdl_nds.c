@@ -1654,6 +1654,111 @@ static int hud_pitch, hud_xp;
 static Uint8 top_buf[LCD_W * LCD_H] __attribute__((aligned(32)));
 static Uint8 flask_tmp[HUD_FL_SW * HUD_FL_SH];
 
+/* NDS-ITEMTXT: descripcion del objeto a tamano real (letra 8x8) en la pantalla de arriba */
+#define ITX_MAXL 21
+static char itx_buf[640];
+static int itx_color, itx_on, itx_age, itx_was;
+void nds_item_text(const char *s, int color)
+{
+    if (!s || !*s) { itx_on = 0; return; }
+    strncpy(itx_buf, s, sizeof itx_buf - 1);
+    itx_buf[sizeof itx_buf - 1] = 0;
+    itx_color = color;
+    itx_on = 1;
+    itx_age = 0;
+}
+static int itx_nearest(int r, int g, int b) /* 0-31 cada uno */
+{
+    int best = 1, bd = 1 << 30, i;
+    for (i = 1; i < 256; i++) {
+        const u16 cc = BG_PALETTE_SUB[i];
+        const int dr = (cc & 31) - r, dg = ((cc >> 5) & 31) - g, db = ((cc >> 10) & 31) - b;
+        const int d = dr * dr + dg * dg + db * db;
+        if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+}
+static void itx_char(int px, int py, unsigned char ch, Uint8 col)
+{
+    const ConsoleFont *f = &consoleGetDefault()->font;
+    const int idx = (int)ch - (int)f->asciiOffset;
+    int x, y;
+    if (idx < 0 || idx >= (int)f->numChars || px < 0 || px > LCD_W - 8 || py < 0 || py > LCD_H - 8)
+        return;
+    for (y = 0; y < 8; y++) {
+        Uint8 *d = top_buf + (py + y) * LCD_W + px;
+        for (x = 0; x < 8; x++) {
+            int on;
+            if (f->bpp == 1)
+                on = (((const u8 *)f->gfx)[idx * 8 + y] >> x) & 1;
+            else if (f->bpp == 4) {
+                const u8 bb = ((const u8 *)f->gfx)[idx * 32 + y * 4 + (x >> 1)];
+                on = (x & 1) ? (bb >> 4) : (bb & 15);
+            } else
+                on = ((const u8 *)f->gfx)[idx * 64 + y * 8 + x];
+            if (on)
+                d[x] = col;
+        }
+    }
+}
+static void itx_text(int y, const char *t, Uint8 col)
+{
+    const int n = (int)strlen(t);
+    int i, x = (LCD_W - n * 8) / 2;
+    for (i = 0; i < n; i++, x += 8)
+        itx_char(x, y, (unsigned char)t[i], col);
+}
+static int itx_compose(void)
+{
+    char lines[ITX_MAXL][33];
+    int n = 0, i, y, h;
+    const char *p = itx_buf;
+    if (itx_on && ++itx_age > 4) /* NDS-ITEMTXT2 */ /* el motor dejo de mandar texto */
+        itx_on = 0;
+    if (!itx_on) {
+        if (itx_was) { memset(top_buf, 0, sizeof top_buf); itx_was = 0; }
+        return 0;
+    }
+    itx_was = 1;
+    memset(top_buf, 0, sizeof top_buf);
+    while (n < ITX_MAXL) { /* partir en lineas de 32 letras */
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        if (len == 0) { lines[n][0] = 0; n++; }
+        while (len > 0 && n < ITX_MAXL) {
+            size_t take = len > 32 ? 32 : len;
+            if (len > 32) { size_t k = take; while (k > 0 && p[k] != ' ') k--; if (k > 0) take = k; }
+            memcpy(lines[n], p, take);
+            lines[n][take] = 0;
+            n++;
+            p += take; len -= take;
+            while (len > 0 && *p == ' ') { p++; len--; }
+        }
+        if (!e) break;
+        p = e + 1;
+    }
+    {
+        const Uint8 white = (Uint8)itx_nearest(31, 31, 31);
+        static const unsigned char cols[4][3] = { { 31, 31, 31 }, { 16, 16, 31 }, { 24, 21, 13 }, { 31, 8, 8 } };
+        const int ci = (itx_color >= 0 && itx_color < 4) ? itx_color : 0;
+        const Uint8 first = (Uint8)itx_nearest(cols[ci][0], cols[ci][1], cols[ci][2]);
+        h = n * 10 + (n > 1 ? 6 : 0);
+        y = (LCD_H - h) / 2;
+        if (y < 2) y = 2;
+        for (i = 0; i < n; i++) {
+            itx_text(y, lines[i], i == 0 ? first : white);
+            y += 10;
+            if (i == 0 && n > 1) { /* raya bajo el nombre */
+                int x;
+                for (x = 40; x < LCD_W - 40; x++)
+                    top_buf[(y + 1) * LCD_W + x] = first;
+                y += 6;
+            }
+        }
+    }
+    return 1;
+}
+
 void nds_hud_frame(const unsigned char *panel, int pitch, int xp_permille)
 {
     hud_pan = panel;
@@ -1716,6 +1821,8 @@ static void nds_hud_compose(void)
     }
     while (dmaBusy(2)) /* NDS-RAPIDO5: esperar a que termine la copia anterior */
         ;
+    if (itx_compose()) /* NDS-ITEMTXT: con descripcion de objeto, arriba solo el texto */
+        return;
     /* NDS-HUD3: minimapa arriba (256x96 de la esquina de la superficie de interfaz) */
     {
         const unsigned char *map = hud_pan - 352 * hud_pitch - 448;

@@ -1380,12 +1380,12 @@ extern "C" void nds_hud_frame(const unsigned char *panel, int pitch, int xpPermi
 SDL_Surface *NdsUiSurface();
 namespace {
 SDL_Surface *NdsUiSdl;
-int NdsUiMode()
+int NdsUiMode() /* NDS-ITEMTXT3: el panel de unico ya no ocupa la tactil (va arriba) */
 {
 	const bool left = IsLeftPanelOpen();
 	const bool right = IsRightPanelOpen() || DropGoldFlag;
 	const bool store = IsPlayerInStore() && !qtextflag;
-	if (qtextflag || SpellSelectFlag || HelpFlag || ChatLogFlag || gmenu_is_active() || DoomFlag || ShowUniqueItemInfoBox || (left && (right || store)) || (store && NdsStoreTextFullSize()))
+	if (qtextflag || SpellSelectFlag || HelpFlag || ChatLogFlag || gmenu_is_active() || DoomFlag || (left && (right || store)) || (store && NdsStoreTextFullSize()))
 		return 3;
 	if (left)
 		return 1;

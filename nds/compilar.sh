@@ -18,3 +18,5 @@ sed -e 's/ -s / /g' -e 's/-Wl,-s / /g' -e 's/-Wl,--strip-all / /g' -e 's/--strip
 bash /tmp/link_sym.sh 2>&1 | grep -E 'error|undefined' | head
 ls -la --time-style=+%H:%M:%S ~/devilutionx_test.nds devilutionx_sym.elf ~/sdl_nds_test/source/sdl_nds.c
 cd ~ && explorer.exe .
+cp ~/devilutionx_test.nds /mnt/c/melonDS/hellspawn.nds && echo "copiado a C:\\melonDS\\hellspawn.nds"
+cp ~/devilutionx_test.nds /mnt/c/melonDS/hellspawn.nds && echo "copiado a C:\\melonDS\\hellspawn.nds"
