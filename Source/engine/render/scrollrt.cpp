@@ -2080,8 +2080,8 @@ void DrawAndBlit()
 		}
 		const bool ndsStore = IsPlayerInStore() && !qtextflag && NdsStoreTextFullSize(); /* NDS-TIENDA */
 		if (ndsStore || ndsMapDue) { /* NDS-HUD3: minimapa en la zona libre de la superficie de interfaz (0,0)-(255,95) */
-			const Surface mapOut = pan.subregion(0, 0, 256, 96);
-			for (int y = 0; y < 96; y++)
+			const Surface mapOut = pan.subregion(0, 0, 256, 111); /* NDS-HUD6d: minimapa 256x111 */
+			for (int y = 0; y < 111; y++)
 				std::memset(mapOut.at(0, y), 0, 256);
 			if (ndsStore) /* NDS-TIENDA: arriba el detalle de la tienda en vez del minimapa */
 				NdsStoreDraw(mapOut);
@@ -2090,7 +2090,7 @@ void DrawAndBlit()
 			const Rectangle prevRect = MinimapRect;
 			const int prevScale = MinimapScale;
 			SetAutomapType(AutomapType::Minimap);
-			MinimapRect = { { 2, 2 }, { 252, 92 } };
+			MinimapRect = { { 2, 2 }, { 252, 107 } };
 			MinimapScale = 25;
 			const unsigned ndsPm = nds_usec();
 			DrawAutomap(mapOut);

@@ -391,6 +391,7 @@ void CheckPanelInfo()
 
 #ifdef __NDS__
 extern "C" void nds_item_text(const char *s, int color); /* NDS-ITEMTXT4 */
+extern "C" void nds_info_text(const char *s, int color); /* NDS-HUD5 */
 #endif
 void DrawInfoBox(const Surface &out)
 {
@@ -460,6 +461,19 @@ void DrawInfoBox(const Surface &out)
 			ndsColor = 3;
 		const std::string ndsText(InfoString.str());
 		nds_item_text(ndsText.c_str(), ndsColor);
+	}
+#endif
+#ifdef __NDS__ /* NDS-HUD5: el texto del cuadro del HUD de arriba */
+	{
+		int ndsColor = 0;
+		if (HasAnyOf(InfoColor, UiFlags::ColorBlue))
+			ndsColor = 1;
+		else if (HasAnyOf(InfoColor, UiFlags::ColorWhitegold | UiFlags::ColorGold))
+			ndsColor = 2;
+		else if (HasAnyOf(InfoColor, UiFlags::ColorRed))
+			ndsColor = 3;
+		const std::string ndsText(InfoString.str());
+		nds_info_text(ndsText.empty() ? nullptr : ndsText.c_str(), ndsColor);
 	}
 #endif
 }

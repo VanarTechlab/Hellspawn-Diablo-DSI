@@ -1923,6 +1923,160 @@ void nds_vkbd_input(const char *hint, char *buf, int maxlen)
     memset(top_buf, 0, sizeof top_buf);
 }
 
+static inline void hud_touch(const void *p, unsigned n); /* NDS-HUD5b */
+/* NDS-HUD5: texto del cuadro del HUD (enemigos, NPC, objetos) y piezas del panel clasico */
+static char hinfo_buf[512];
+static int hinfo_color;
+void nds_info_text(const char *s, int color)
+{
+    if (!s || !*s) { hinfo_buf[0] = 0; return; }
+    strncpy(hinfo_buf, s, sizeof hinfo_buf - 1);
+    hinfo_buf[sizeof hinfo_buf - 1] = 0;
+    hinfo_color = color;
+}
+static int hud_wrap(const char *p, char lines[][20], int maxl) /* NDS-HUD5e: 18 letras */
+{
+    int n = 0;
+    while (n < maxl && *p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        while (len > 0 && n < maxl) {
+            size_t take = len > 18 ? 18 : len;
+            if (len > 18) { size_t k = take; while (k > 0 && p[k] != ' ') k--; if (k > 0) take = k; }
+            memcpy(lines[n], p, take);
+            lines[n][take] = 0;
+            n++;
+            p += take; len -= take;
+            while (len > 0 && *p == ' ') { p++; len--; }
+        }
+        if (!e) break;
+        p = e + 1;
+    }
+    return n;
+}
+static void hud_piece(int px, int dx) /* frasco con su estatua: 104x141 del panel a 64x88 */
+{
+    int x, y;
+    const int dw = 64, dh = 88, dy = 99;
+    const unsigned stx = ((unsigned)HUD_FL_SW << 16) / (unsigned)dw;
+    for (y = 0; y < dh; y++) {
+        const int sy = y * HUD_FL_SH / dh;
+        const unsigned char *src = hud_pan + (sy - 13) * hud_pitch + px + HUD_FL_SX;
+        Uint8 *d = top_buf + (dy + y) * LCD_W + dx;
+        unsigned fx = 0;
+        hud_touch(d, (unsigned)dw);
+        for (x = 0; x < dw; x++, fx += stx) {
+            const int sx = (int)(fx >> 16);
+            const int rel = sx + HUD_FL_SX;
+            const int ax = px + HUD_FL_SX + sx; /* NDS-HUD5d: columna y fila en el panel */
+            const int ay = sy - 13;
+            if (sy < 13 && (rel < 11 || rel >= 73))
+                d[x] = 0;
+            else if (ay >= 40 && ((px < 300 && ax >= 175) || (px >= 300 && ax <= 467))) /* NDS-HUD5g: zona del cuadro original: reflejo del otro lado del frasco */
+                d[x] = hud_pan[ay * hud_pitch + (2 * (px + HUD_FL_SX) + HUD_FL_SW - ax)];
+            else
+                d[x] = src[sx];
+        }
+    }
+}
+static int hud_green_idx = -1;
+static unsigned hud_green_n;
+static Uint8 hud_green(void) /* color de la experiencia: un indice libre de la paleta de arriba */
+{
+    if (hud_green_idx < 0 || (++hud_green_n & 31) == 0) {
+        static unsigned short cnt[256];
+        int i, best = -1;
+        memset(cnt, 0, sizeof cnt);
+        for (i = 0; i < LCD_W * 188; i++)
+            cnt[top_buf[i]]++;
+        for (i = 255; i > 0; i--)
+            if (cnt[i] == 0 && i != hud_green_idx) { best = i; break; }
+        if (hud_green_idx >= 0 && cnt[hud_green_idx] == 0)
+            best = hud_green_idx;
+        if (best > 0)
+            hud_green_idx = best;
+        else if (hud_green_idx < 0)
+            hud_green_idx = itx_nearest(5, 25, 17);
+    }
+    BG_PALETTE_SUB[hud_green_idx] = RGB15(5, 25, 17);
+    return (Uint8)hud_green_idx;
+}
+/* NDS-HUD6: panel clasico entero de un solo escalado (columnas 88-560, 13 filas sobre el panel + 128) a 256x92 */
+static void hud_full(void)
+{
+    int x, y;
+    const unsigned stx = (472u << 16) / 256u;
+    for (y = 111; y < 111; y++) /* NDS-HUD6b/6c/6d (ya sin hueco): misma escala en ancho y alto (bolas redondas): 77 filas, hueco negro arriba */
+        memset(top_buf + y * LCD_W, 0, LCD_W);
+    for (y = 0; y < 77; y++) {
+        const int ay = y * 141 / 77 - 13;
+        const unsigned char *src = hud_pan + ay * hud_pitch + 88;
+        Uint8 *d = top_buf + (111 + y) * LCD_W;
+        unsigned fx = 0;
+        hud_touch(d, LCD_W);
+        for (x = 0; x < LCD_W; x++, fx += stx) {
+            const int ax = 88 + (int)(fx >> 16);
+            if (ay < 0 && !((ax >= 107 && ax < 169) || (ax >= 475 && ax < 537)))
+                d[x] = 0; /* sobre el panel solo la punta de las bolas */
+            else
+                d[x] = src[fx >> 16];
+        }
+    }
+}
+#define HUD6_X0 52  /* interior del cuadro de texto (pantalla de arriba) */
+#define HUD6_X1 201
+#define HUD6_Y0 146 /* NDS-HUD6b */
+#define HUD6_Y1 173
+static void hud_text6(void)
+{
+    char lines[4][20];
+    int j, n, i;
+    for (j = HUD6_Y0; j <= HUD6_Y1; j++)
+        memset(top_buf + j * LCD_W + HUD6_X0, 0, HUD6_X1 - HUD6_X0 + 1);
+    n = hud_wrap(hinfo_buf, lines, 3); /* NDS-HUD6b: 3 lineas */
+    if (n > 0) {
+        static const unsigned char cols[4][3] = { { 31, 31, 31 }, { 16, 16, 31 }, { 24, 21, 13 }, { 31, 8, 8 } };
+        const int ci = (hinfo_color >= 0 && hinfo_color < 4) ? hinfo_color : 0;
+        const Uint8 white = (Uint8)itx_nearest(31, 31, 31);
+        const Uint8 first = (Uint8)itx_nearest(cols[ci][0], cols[ci][1], cols[ci][2]);
+        int y = HUD6_Y0 + 2 + (3 - n) * 8 / 2;
+        for (i = 0; i < n; i++, y += 8) {
+            const int len = (int)strlen(lines[i]);
+            int k, x = (HUD6_X0 + HUD6_X1 + 1) / 2 - len * 4;
+            for (k = 0; k < len; k++, x += 8)
+                itx_char(x, y, (unsigned char)lines[i][k], i == 0 ? first : white);
+        }
+    }
+}
+static void hud_textbox(void)
+{
+    char lines[6][20];
+    int j, n, i;
+    const Uint8 edge = (Uint8)itx_nearest(22, 18, 9);
+    for (j = 120; j <= 186; j++) /* NDS-HUD5g: cuadro 66-189 x 120-186 (solo el centro) */
+        memset(top_buf + j * LCD_W + 66, 0, 124);
+    memset(top_buf + 120 * LCD_W + 66, edge, 124);
+    memset(top_buf + 186 * LCD_W + 66, edge, 124);
+    for (j = 120; j <= 186; j++) {
+        top_buf[j * LCD_W + 66] = edge;
+        top_buf[j * LCD_W + 189] = edge;
+    }
+    n = hud_wrap(hinfo_buf, lines, 6);
+    if (n > 0) {
+        static const unsigned char cols[4][3] = { { 31, 31, 31 }, { 16, 16, 31 }, { 24, 21, 13 }, { 31, 8, 8 } };
+        const int ci = (hinfo_color >= 0 && hinfo_color < 4) ? hinfo_color : 0;
+        const Uint8 white = (Uint8)itx_nearest(31, 31, 31);
+        const Uint8 first = (Uint8)itx_nearest(cols[ci][0], cols[ci][1], cols[ci][2]);
+        int y = 126 + (6 - n) * 9 / 2;
+        for (i = 0; i < n; i++, y += 9) {
+            const int len = (int)strlen(lines[i]);
+            int k, x = 128 - len * 4;
+            for (k = 0; k < len; k++, x += 8)
+                itx_char(x, y, (unsigned char)lines[i][k], i == 0 ? first : white);
+        }
+    }
+}
+
 void nds_hud_frame(const unsigned char *panel, int pitch, int xp_permille)
 {
     hud_pan = panel;
@@ -1990,37 +2144,26 @@ static void nds_hud_compose(void)
     /* NDS-HUD3: minimapa arriba (256x96 de la esquina de la superficie de interfaz) */
     {
         const unsigned char *map = hud_pan - 352 * hud_pitch - 448;
-        for (y = 0; y < 96; y++)
+        for (y = 0; y < 111; y++) /* NDS-HUD6d: minimapa 256x111 hasta encima de las bolas */
             memcpy(top_buf + y * LCD_W, map + y * hud_pitch, LCD_W);
     }
-    /* texto de informacion: centro 203x64 del cuadro del panel (219,46) a 152x64 entre los frascos */
-    for (y = 0; y < 64; y++) {
-        const unsigned char *s = hud_pan + (46 + y) * hud_pitch + 219;
-        Uint8 *d = top_buf + (HUD_XP_Y + HUD_XP_H - HUD_FLASK_H - 21 + y) * LCD_W + HUD_BELT_X;
-        hud_touch(d, HUD_BELT_W); /* NDS-RAPIDO7 */
-        for (x = 0; x < HUD_BELT_W; x++) {
-            Uint8 a = s[x * 4 / 3], b = s[x * 4 / 3 + 1];
-            d[x] = pal_lum[b] > pal_lum[a] ? b : a;
-        }
-    }
-    hud_flask(96, 0);                          /* vida a la izquierda */
-    hud_flask(464, LCD_W - HUD_FLASK_W);    /* mana a la derecha */
-    /* cinturon: 232x29 del panel (205,5) */
-    hud_blit(hud_pan + 5 * hud_pitch + 205, hud_pitch, 232, 29, HUD_BELT_X, HUD_BELT_Y, HUD_BELT_W, HUD_BELT_H);
-    /* barra de experiencia: el color mas claro y el mas oscuro de los grises de la interfaz (240-255) */
-    for (x = 240; x < 256; x++) {
+    /* NDS-HUD6: mitad de abajo = panel clasico de un solo escalado + texto 8x8 en el cuadro */
+    hud_full();
+    hud_text6();
+    for (x = 240; x < 256; x++) {     /* gris oscuro para la parte vacia de la experiencia */
         if (pal_lum[x] > pal_lum[white])
             white = x;
         if (pal_lum[x] < pal_lum[dark])
             dark = x;
     }
     {
-        int fill = HUD_BELT_W * hud_xp / 1000;
-        for (y = 0; y < HUD_XP_H; y++) {
-            Uint8 *d = top_buf + (HUD_XP_Y + y) * LCD_W + HUD_BELT_X;
-            hud_touch(d, HUD_BELT_W); /* NDS-RAPIDO7 */
-            for (x = 0; x < HUD_BELT_W; x++)
-                d[x] = (Uint8)(x < fill ? white : dark);
+        const Uint8 g = hud_green();
+        const int fill = LCD_W * hud_xp / 1000;
+        for (y = 188; y < 192; y++) {
+            Uint8 *d = top_buf + y * LCD_W;
+            hud_touch(d, LCD_W);
+            for (x = 0; x < LCD_W; x++)
+                d[x] = (Uint8)(x < fill ? g : dark);
         }
     }
 }
