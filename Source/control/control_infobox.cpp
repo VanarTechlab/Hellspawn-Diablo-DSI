@@ -389,6 +389,9 @@ void CheckPanelInfo()
 		MainPanelFlag = true;
 }
 
+#ifdef __NDS__
+extern "C" void nds_item_text(const char *s, int color); /* NDS-ITEMTXT4 */
+#endif
 void DrawInfoBox(const Surface &out)
 {
 	DrawPanelBox(out, MakeSdlRect(InfoBoxRect.position.x, InfoBoxRect.position.y + PanelPaddingHeight, InfoBoxRect.size.width, InfoBoxRect.size.height), GetMainPanel().position + Displacement { InfoBoxRect.position.x, InfoBoxRect.position.y });
@@ -445,6 +448,20 @@ void DrawInfoBox(const Surface &out)
 	}
 	if (!InfoString.empty())
 		PrintInfo(out);
+#ifdef __NDS__ /* NDS-ITEMTXT4: objeto del inventario, cofre o tienda: descripcion a tamano real arriba */
+	if (!ShowUniqueItemInfoBox && !InfoString.empty() && myPlayer.HoldItem.isEmpty()
+	    && (pcursinvitem != -1 || pcursstashitem != StashStruct::EmptyCell || pcursstoreitem != -1)) {
+		int ndsColor = 0;
+		if (HasAnyOf(InfoColor, UiFlags::ColorBlue))
+			ndsColor = 1;
+		else if (HasAnyOf(InfoColor, UiFlags::ColorWhitegold | UiFlags::ColorGold))
+			ndsColor = 2;
+		else if (HasAnyOf(InfoColor, UiFlags::ColorRed))
+			ndsColor = 3;
+		const std::string ndsText(InfoString.str());
+		nds_item_text(ndsText.c_str(), ndsColor);
+	}
+#endif
 }
 
 #ifdef __NDS__
