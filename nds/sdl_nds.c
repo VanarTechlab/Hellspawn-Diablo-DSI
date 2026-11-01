@@ -1567,6 +1567,8 @@ static void dark_build(void)
 static int ui_dialog; /* NDS-DIALOGO: hay un dialogo (qtext): la interfaz se baja DLG_OFF filas */
 #define DLG_OFF 30
 void nds_ui_dialog(int on) { ui_dialog = on; }
+static int ui_spells; /* NDS-HECHIZOS: lista de hechizos rapidos abierta */
+void nds_ui_spells(int on) { ui_spells = on; }
 static int ui_store; /* NDS-TIENDA2: la tienda esta abierta (recorte ampliado del recuadro) */
 void nds_ui_store(int on) { ui_store = on; }
 #define ST_SX 336 /* recuadro de la tienda en la mitad derecha de la interfaz (NDS-TIENDA2b) */
@@ -1609,6 +1611,67 @@ static int belt_hit(int x, int y, int *slot, int *lx, int *ly)
 }
 static int belt_on(void) { return ui_mode == 2 && !ui_store && !(ui_wide & 2); }
 
+/* NDS-DIALOGO2: dialogo a pantalla completa: zona 452x339 de la interfaz -> 256x192, fondo = mundo oscurecido */
+#define DQ_SX 94
+#define DQ_SW 452
+#define DQ_SH 339
+static int vk_near(int r, int g, int b);
+static void dlg_compose(void)
+{
+    static int ok, col;
+    static unsigned tick;
+    int x, y;
+    if (!ok || ++tick >= 120) {
+        dark_build();
+        col = vk_near(24, 18, 6);
+        tick = 0;
+        ok = 1;
+    }
+    for (y = 0; y < LCD_H; y++) {
+        const int sy = y * DQ_SH / LCD_H;
+        const unsigned char *s0 = ui_pix + sy * ui_pitch + DQ_SX;
+        const unsigned char *s1 = s0 + (sy + 1 < DQ_SH ? ui_pitch : 0);
+        Uint8 *d = comp_buf + y * LCD_W;
+        for (x = 0; x < LCD_W; x++) {
+            const int sx = x * DQ_SW / LCD_W;
+            Uint8 a = s0[sx], b = s0[sx + 1], c = s1[sx], e = s1[sx + 1];
+            if (pal_lum[b] > pal_lum[a]) a = b;
+            if (pal_lum[c] > pal_lum[a]) a = c;
+            if (pal_lum[e] > pal_lum[a]) a = e;
+            d[x] = a ? a : dark_lut[d[x]];
+        }
+    }
+    for (x = 1; x < LCD_W - 1; x++) { /* marco dorado */
+        comp_buf[1 * LCD_W + x] = (Uint8)col;
+        comp_buf[(LCD_H - 2) * LCD_W + x] = (Uint8)col;
+    }
+    for (y = 1; y < LCD_H - 1; y++) {
+        comp_buf[y * LCD_W + 1] = (Uint8)col;
+        comp_buf[y * LCD_W + LCD_W - 2] = (Uint8)col;
+    }
+}
+
+/* NDS-HECHIZOS: iconos (x 12..459, filas 0..335 de la interfaz) a toda la tactil, escala 1,75; fondo = mundo */
+#define SP_SX 12
+#define SP_BOT 336
+static void spl_compose(void)
+{
+    int x, y;
+    for (y = 0; y < LCD_H; y++) {
+        const int sy = SP_BOT - (LCD_H - y) * 7 / 4;
+        const unsigned char *s;
+        Uint8 *d = comp_buf + y * LCD_W;
+        if (sy < 0)
+            continue;
+        s = ui_pix + sy * ui_pitch + SP_SX;
+        for (x = 0; x < LCD_W; x++) {
+            const Uint8 v = s[x * 7 / 4];
+            if (v)
+                d[x] = v;
+        }
+    }
+}
+
 static void nds_ui_compose(void)
 {
     int x, y;
@@ -1642,6 +1705,14 @@ static void nds_ui_compose(void)
             for (x = 0; x < LCD_W; x += 4)
                 *d++ = (u32)sr[zx[x]] | ((u32)sr[zx[x + 1]] << 8) | ((u32)sr[zx[x + 2]] << 16) | ((u32)sr[zx[x + 3]] << 24);
         }
+    }
+    if (ui_mode == 3 && ui_dialog) { /* NDS-DIALOGO2 */
+        dlg_compose();
+        return;
+    }
+    if (ui_mode == 3 && ui_spells) { /* NDS-HECHIZOS */
+        spl_compose();
+        return;
     }
     if (ui_mode >= 3) {
         for (y = 0; y < LCD_H; y++) {
@@ -1706,10 +1777,8 @@ static void nds_ui_compose(void)
             return;
         }
         for (y = 0; y < LCD_H; y++) {
-            const unsigned char *s = ui_pix + (y * 11 / 6) * ui_pitch + sx0;
+            const unsigned char *s = ui_pix + (y * 337 / LCD_H) * ui_pitch + sx0; /* NDS-CINTURON2: filas 0-338 a toda la altura */
             Uint8 *d = comp_buf + y * LCD_W + dx0;
-            if (y * 11 / 6 + 2 >= 339) /* NDS-TIENDA2: sin las puntas de los frascos ni el panel (franja de colores) */
-                continue;
             for (x = 0; x < UI_PW; x++)
                 d[x] = NDS_UI_SHARP ? sharp_pick(s + x * 11 / 6, ui_pitch, 2, 2) : s[x * 11 / 6];
         }
@@ -1721,10 +1790,15 @@ static void nds_ui_compose(void)
 static void nds_touch_map(u16 *px, u16 *py)
 {
     int x = *px, y = *py;
-    if (ui_mode == 3 && ui_dialog) { /* NDS-DIALOGO */
-        y -= DLG_OFF;
-        if (y < 0)
-            y = 0;
+    if (ui_mode == 3 && ui_dialog) { /* NDS-DIALOGO2: toque dentro de la zona del texto (cierra el dialogo) */
+        *px = (u16)(UI_X0 + DQ_SX + x * DQ_SW / LCD_W);
+        *py = (u16)(y * DQ_SH / LCD_H);
+        return;
+    }
+    if (ui_mode == 3 && ui_spells) { /* NDS-HECHIZOS */
+        *px = (u16)(UI_X0 + SP_SX + x * 7 / 4);
+        *py = (u16)(SP_BOT - (LCD_H - y) * 7 / 4);
+        return;
     }
     if ((ui_mode == 3 && y * 5 / 2 + 2 < 339) || ui_mode == 4) {
         x = UI_X0 + x * 5 / 2;
@@ -1737,13 +1811,13 @@ static void nds_touch_map(u16 *px, u16 *py)
         y = 14 + y * 336 / LCD_H;
     } else if (ui_mode == 1 && x < UI_PW) {
         x = UI_X0 + x * 11 / 6;
-        y = y * 11 / 6;
+        y = y * 337 / LCD_H; /* NDS-CINTURON2 */
     } else if (ui_mode == 2 && ui_store && x >= (LCD_W - ST_DW) / 2 && x < (LCD_W - ST_DW) / 2 + ST_DW) { /* NDS-TIENDA2/3/4 */
         x = UI_X0 + ST_SX + (x - (LCD_W - ST_DW) / 2) * ST_SW / ST_DW;
         y = ST_SY + y * ST_SH / LCD_H;
     } else if (ui_mode == 2 && x >= LCD_W - UI_PW) {
         x = UI_X0 + 320 + (x - (LCD_W - UI_PW)) * 11 / 6;
-        y = y * 11 / 6;
+        y = y * 337 / LCD_H; /* NDS-CINTURON2 */
     } else if (belt_on() && belt_hit(x, y, 0, 0, 0)) { /* NDS-CINTURON */
         int slot, lx, ly;
         belt_hit(x, y, &slot, &lx, &ly);
@@ -2073,6 +2147,19 @@ static inline void hud_touch(const void *p, unsigned n); /* NDS-HUD5b */
 /* NDS-HUD5: texto del cuadro del HUD (enemigos, NPC, objetos) y piezas del panel clasico */
 static char hinfo_buf[512];
 static int hinfo_color;
+/* NDS-NIVEL: aviso de nivel (3 s) y boton "+" de puntos sin repartir */
+static Uint32 lvl_until;
+static int lvl_num, ui_statpts;
+static volatile int nds_chr_req;
+void nds_levelup(int lvl) { lvl_num = lvl; lvl_until = (SDL_GetTicks() + 3000u) | 1u; }
+void nds_ui_statpts(int on) { ui_statpts = on; }
+int nds_take_chrpanel(void) { const int r = nds_chr_req; nds_chr_req = 0; return r; }
+static int lvl_active(void)
+{
+    if (lvl_until && (int)(SDL_GetTicks() - lvl_until) >= 0)
+        lvl_until = 0;
+    return lvl_until != 0;
+}
 void nds_info_text(const char *s, int color)
 {
     if (!s || !*s) { hinfo_buf[0] = 0; return; }
@@ -2190,10 +2277,18 @@ static void hud_text6(void)
     int j, n, i;
     for (j = HUD6_Y0; j <= HUD6_Y1; j++)
         memset(top_buf + j * LCD_W + HUD6_X0, 0, HUD6_X1 - HUD6_X0 + 1);
-    n = hud_wrap(hinfo_buf, lines, 3); /* NDS-HUD6b: 3 lineas */
+    const char *htxt = hinfo_buf; /* NDS-NIVEL: durante el aviso, "NIVEL N" en dorado */
+    int hcol = hinfo_color;
+    char lvbuf[24];
+    if (lvl_active()) {
+        snprintf(lvbuf, sizeof lvbuf, "NIVEL %d", lvl_num);
+        htxt = lvbuf;
+        hcol = 2;
+    }
+    n = hud_wrap(htxt, lines, 3); /* NDS-HUD6b: 3 lineas */
     if (n > 0) {
         static const unsigned char cols[4][3] = { { 31, 31, 31 }, { 16, 16, 31 }, { 24, 21, 13 }, { 31, 8, 8 } };
-        const int ci = (hinfo_color >= 0 && hinfo_color < 4) ? hinfo_color : 0;
+        const int ci = (hcol >= 0 && hcol < 4) ? hcol : 0;
         const Uint8 white = (Uint8)itx_nearest(31, 31, 31);
         const Uint8 first = (Uint8)itx_nearest(cols[ci][0], cols[ci][1], cols[ci][2]);
         int y = HUD6_Y0 + 2 + (3 - n) * 8 / 2;
@@ -2394,8 +2489,9 @@ static void nds_hud_compose(void)
         for (y = 188; y < 192; y++) {
             Uint8 *d = top_buf + y * LCD_W;
             hud_touch(d, LCD_W);
+            const int blink = lvl_active() && ((SDL_GetTicks() / 200u) & 1u); /* NDS-NIVEL: la barra parpadea */
             for (x = 0; x < LCD_W; x++) /* NDS-XPBAR: 8 tramos (rayas negras), fila de arriba mas clara */
-                d[x] = (Uint8)(((x & 31) == 31 && x < LCD_W - 1) ? 0 : (x < fill ? (y == 188 ? hud_green_hi : g) : dark));
+                d[x] = (Uint8)(((x & 31) == 31 && x < LCD_W - 1) ? 0 : (blink ? hud_green_hi : (x < fill ? (y == 188 ? hud_green_hi : g) : dark)));
         }
     }
 }
@@ -2819,6 +2915,37 @@ int nds_take_friendly(void)
 #define FB_Y 2
 #define FB_W 30
 #define FB_H 13
+/* NDS-NIVEL: boton "+" arriba a la izquierda de la tactil (puntos sin repartir) */
+#define LB_X 2
+#define LB_Y 2
+#define LB_W 14
+#define LB_H 13
+static void lb_draw(Uint8 *dst)
+{
+    static Uint8 rows[LCD_W * (LB_Y + LB_H)];
+    int x, y;
+    Uint8 cBg, cCol;
+    if (!ui_statpts || !dst)
+        return;
+    cBg = (Uint8)vk_near(2, 2, 2);
+    cCol = (Uint8)vk_near(31, 26, 12);
+    for (y = 0; y < LB_Y + LB_H; y++) { /* leer de la VRAM de 2 en 2 bytes */
+        const u16 *sp = (const u16 *)(dst + y * LCD_W);
+        u16 *dp = (u16 *)(rows + y * LCD_W);
+        for (x = 0; x < LCD_W / 2; x++)
+            dp[x] = sp[x];
+    }
+    for (y = 0; y < LB_H; y++)
+        for (x = 0; x < LB_W; x++)
+            rows[(LB_Y + y) * LCD_W + LB_X + x] = (y == 0 || y == LB_H - 1 || x == 0 || x == LB_W - 1) ? cCol : cBg;
+    fnt_char(rows, LB_X + 3, LB_Y + 3, (unsigned char)'+', cCol);
+    for (y = LB_Y; y < LB_Y + LB_H; y++) { /* escribir en la VRAM de 2 en 2 bytes */
+        const u16 *sp = (const u16 *)(rows + y * LCD_W);
+        u16 *dp = (u16 *)(dst + y * LCD_W);
+        for (x = 0; x < LCD_W / 2; x++)
+            dp[x] = sp[x];
+    }
+}
 static void fb_draw(Uint8 *dst)
 {
     static Uint8 rows[LCD_W * (FB_Y + FB_H)];
@@ -2870,6 +2997,7 @@ int SDL_Flip(SDL_Surface *s)
             vback = back;
             nds_ui_compose(); /* el mundo va directo a la VRAM, 4 pixeles por escritura */
             fb_draw(back); /* NDS-AMISTAD */
+            lb_draw(back); /* NDS-NIVEL */
             vback = NULL;
         } else {
             DC_FlushRange(video_pixels, SCREEN_BYTES);
@@ -3175,6 +3303,11 @@ static int fb_check(const touchPosition *t)
 {
     if (fb_touch)
         return 1;
+    if (!touch_down && ui_statpts && ui_mode == 0 && t->px < LB_X + LB_W + 2 && t->py < LB_Y + LB_H + 2) { /* NDS-NIVEL */
+        fb_touch = 1;
+        nds_chr_req = 1;
+        return 1;
+    }
     if (!touch_down && ui_friendly && ui_mode == 0 && t->px >= FB_X && t->py < FB_Y + FB_H + 2) {
         fb_touch = 1;
         nds_friendly_req = 1;

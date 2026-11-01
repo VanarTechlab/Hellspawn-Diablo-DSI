@@ -6,6 +6,7 @@
 #include "engine/render/scrollrt.h"
 #ifdef __NDS__
 #include "msg.h" /* NDS-AMISTAD: NetSendCmd */
+#include "control/control.hpp" /* NDS-NIVEL: OpenCharPanel */
 #endif
 
 #include <cmath>
@@ -1381,9 +1382,13 @@ extern "C" const char *nds_prof_line(int n);
 extern "C" void nds_ui_menu_keys(int on); /* NDS-BOTONES3 */
 extern "C" void nds_ui_store(int on); /* NDS-TIENDA2 */
 extern "C" void nds_ui_dialog(int on); /* NDS-DIALOGO */
+extern "C" void nds_ui_spells(int on); /* NDS-HECHIZOS */
 extern "C" void nds_ui_gmenu(int on); /* NDS-MENUTRANS */
 extern "C" void nds_ui_wide(int w); /* NDS-PANELANCHO */
 extern "C" void nds_ui_friendly(int f); /* NDS-AMISTAD */
+extern "C" void nds_levelup(int lvl); /* NDS-NIVEL: aviso de nivel */
+extern "C" void nds_ui_statpts(int on);
+extern "C" int nds_take_chrpanel(void);
 extern "C" int nds_take_friendly(void);
 extern "C" void nds_hud_frame(const unsigned char *panel, int pitch, int xpPermille);
 SDL_Surface *NdsUiSurface();
@@ -1413,11 +1418,22 @@ void DrawView(const Surface &out, Point startPosition)
 	nds_ui_menu_keys((IsPlayerInStore() || gmenu_is_active() || qtextflag || QuestLogIsOpen || HelpFlag || ChatLogFlag || DoomFlag) ? 1 : 0); /* NDS-BOTONES3 */
 	nds_ui_store((ndsUiMode == 2 && IsPlayerInStore() && !qtextflag && !IsRightPanelOpen() && !DropGoldFlag) ? 1 : 0); /* NDS-TIENDA2 */
 	nds_ui_dialog(qtextflag ? 1 : 0); /* NDS-DIALOGO */
+	nds_ui_spells(SpellSelectFlag ? 1 : 0); /* NDS-HECHIZOS */
 	nds_ui_gmenu(gmenu_is_active() ? 1 : 0); /* NDS-MENUTRANS */
 	nds_ui_wide(((ndsUiMode == 1 && CharFlag) ? 1 : 0) | ((ndsUiMode == 2 && SpellbookFlag) ? 2 : 0)); /* NDS-PANELANCHO */
 	nds_ui_friendly(gbIsMultiplayer ? (MyPlayer->friendlyMode ? 1 : 2) : 0); /* NDS-AMISTAD */
 	if (gbIsMultiplayer && nds_take_friendly() != 0)
 		NetSendCmd(true, CMD_FRIENDLYMODE);
+	{ /* NDS-NIVEL: aviso al subir un nivel y boton "+" mientras haya puntos */
+		static int ndsLastLvl = -1;
+		const int ndsLvl = static_cast<int>(MyPlayer->getCharacterLevel());
+		if (ndsLastLvl > 0 && ndsLvl == ndsLastLvl + 1)
+			nds_levelup(ndsLvl);
+		ndsLastLvl = ndsLvl;
+		nds_ui_statpts(MyPlayer->_pStatPts > 0 ? 1 : 0);
+		if (nds_take_chrpanel() != 0 && !CharFlag)
+			OpenCharPanel();
+	}
 	if (ndsUiMode != 0) {
 		for (int y = 0; y < 339; y++) /* NDS-HUD: no borrar el panel (filas 339-479) */
 			std::memset(ui.at(448, y), 0, 640);
@@ -1516,6 +1532,9 @@ void DrawView(const Surface &out, Point startPosition)
 
 	{ DrawDurIcon(ui); nds_lua_check(111); } /* NDS-CHECK2 */
 
+#ifdef __NDS__ /* NDS-NIVELBOTON: no tapar el menu, los dialogos ni la lista de hechizos */
+	if (ndsUiMode != 3)
+#endif
 	{ DrawLevelButton(ui); nds_lua_check(112); } /* NDS-CHECK2 */
 
 	if (CharFlag) {

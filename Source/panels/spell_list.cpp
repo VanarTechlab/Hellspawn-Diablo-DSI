@@ -20,7 +20,11 @@
 #include "utils/str_cat.hpp"
 #include "utils/utf8.hpp"
 
+#ifdef __NDS__ /* NDS-HECHIZOS: 8 iconos por fila (la fila tiene SPLROWICONLS + 1) */
+#define SPLROWICONLS 7
+#else
 #define SPLROWICONLS 10
+#endif
 
 namespace devilution {
 

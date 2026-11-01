@@ -38,6 +38,11 @@ OptionalOwnedClxSpriteList pTextBoxCels;
 
 /** Pixels for a line of text and the empty space under it. */
 const int LineHeight = 38;
+#ifdef __NDS__ /* NDS-DIALOGO2: zona del texto 452x339 (x 94..545 de la interfaz), se amplia a toda la tactil */
+constexpr int NdsQX = 94 + 14;
+constexpr int NdsQW = 424;
+constexpr int NdsQH = 339;
+#endif
 
 std::vector<std::string> TextLines;
 
@@ -45,7 +50,13 @@ void LoadText(std::string_view text)
 {
 	TextLines.clear();
 
-	const std::string paragraphs = WordWrapString(text, 543, GameFont30);
+	const std::string paragraphs = WordWrapString(text,
+#ifdef __NDS__
+	    NdsQW, /* NDS-DIALOGO2 */
+#else
+	    543,
+#endif
+	    GameFont30);
 
 	size_t previous = 0;
 	while (true) {
@@ -101,12 +112,20 @@ void DrawQTextContent(const Surface &out)
 {
 	const int y = CalculateTextPosition();
 
+#ifdef __NDS__ /* NDS-DIALOGO2 */
+	const int sx = GetUIRectangle().position.x + NdsQX;
+	const int ndsLines = NdsQH / LineHeight + 2;
+	const int ndsW = NdsQW;
+#else
 	const int sx = GetUIRectangle().position.x + 48;
+	const int ndsLines = 8;
+	const int ndsW = 543;
+#endif
 	const int sy = 0 - (y % LineHeight);
 
 	const unsigned int skipLines = y / LineHeight;
 
-	for (int i = 0; i < 8; i++) {
+	for (int i = 0; i < ndsLines; i++) { /* NDS-DIALOGO2 */
 		const unsigned int lineNumber = skipLines + i;
 		if (lineNumber >= TextLines.size()) {
 			continue;
@@ -117,7 +136,7 @@ void DrawQTextContent(const Surface &out)
 			continue;
 		}
 
-		DrawString(out, line, { { sx, sy + (i * LineHeight) }, { 543, LineHeight } },
+		DrawString(out, line, { { sx, sy + (i * LineHeight) }, { ndsW, LineHeight } },
 		    { .flags = UiFlags::FontSize30 | UiFlags::ColorGold });
 	}
 }
@@ -181,8 +200,12 @@ void DrawQTextBack(const Surface &out)
 
 void DrawQText(const Surface &out)
 {
+#ifdef __NDS__ /* NDS-DIALOGO2: sin recuadro (lo pone la capa SDL), zona alta de la interfaz */
+	DrawQTextContent(out.subregionY(GetUIRectangle().position.y, NdsQH));
+#else
 	DrawQTextBack(out);
 	DrawQTextContent(out.subregionY(GetUIRectangle().position.y + 49, 260));
+#endif
 }
 
 } // namespace devilution

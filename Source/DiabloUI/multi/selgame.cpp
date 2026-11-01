@@ -57,6 +57,21 @@ static GameData *m_game_data;
 extern int provider;
 
 #define DESCRIPTION_WIDTH 205
+#ifdef __NDS__ /* NDS-SELMULTI: letra grande en los menus de multijugador */
+#define NDS_DESC_FLAGS (UiFlags::FontSize24 | UiFlags::ColorUiSilver)
+#define NDS_DESC_LH 24
+#define NDS_WRAP_FONT GameFont24
+#define NDS_LIST_FONT UiFlags::FontSize30
+#define NDS_LIST_H 33
+#define NDS_TXT(largo, corto) std::string_view(corto)
+#else
+#define NDS_DESC_FLAGS (UiFlags::FontSize12 | UiFlags::ColorUiSilverDark)
+#define NDS_DESC_LH 16
+#define NDS_WRAP_FONT GameFont12
+#define NDS_LIST_FONT UiFlags::FontSize24
+#define NDS_LIST_H 26
+#define NDS_TXT(largo, corto) _(largo)
+#endif
 
 namespace {
 
@@ -144,7 +159,7 @@ void UiInitGameSelectionList(std::string_view search)
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Description:").data(), rect2, UiFlags::FontSize24 | UiFlags::ColorUiSilver));
 
 	const SDL_Rect rect3 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 256), DESCRIPTION_WIDTH, 192 };
-	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark, 1, 16));
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, NDS_DESC_FLAGS, 1, NDS_DESC_LH)); /* NDS-SELMULTI */
 
 	const SDL_Rect rect4 = { (Sint16)(uiPosition.x + 300), (Sint16)(uiPosition.y + 211), 295, 33 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Select Action").data(), rect4, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
@@ -152,7 +167,7 @@ void UiInitGameSelectionList(std::string_view search)
 #ifdef PACKET_ENCRYPTION
 	vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Create Game"), 0, UiFlags::ColorUiGold));
 #endif
-	vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Create Public Game"), 1, UiFlags::ColorUiGold));
+	vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(NDS_TXT("Create Public Game", "Create Game"), 1, UiFlags::ColorUiGold)); /* NDS-SELMULTI2 */
 	vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Join Game"), 2, UiFlags::ColorUiGold));
 
 	if (provider == SELCONN_ZT) {
@@ -172,7 +187,7 @@ void UiInitGameSelectionList(std::string_view search)
 		}
 	}
 
-	vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, 6, uiPosition.x + 305, (uiPosition.y + 255), 285, 26, UiFlags::AlignCenter | UiFlags::FontSize24));
+	vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, NDS_LIST_H == 33 ? 5 : 6, uiPosition.x + 305, (uiPosition.y + 255), 285, NDS_LIST_H, UiFlags::AlignCenter | NDS_LIST_FONT)); /* NDS-SELMULTI */
 
 	const SDL_Rect rect5 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 427), 140, 35 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("OK"), &UiFocusNavigationSelect, rect5, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
@@ -217,14 +232,14 @@ void selgame_GameSelection_Focus(size_t value)
 	const UiListItem &item = *vecSelGameDlgItems[value];
 	switch (item.m_value) {
 	case 0:
-		CopyUtf8(selgame_Description, _("Create a new game with a difficulty setting of your choice."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Create a new game with a difficulty setting of your choice.", "Create a new game and choose the difficulty."), sizeof(selgame_Description));
 		break;
 	case 1:
-		CopyUtf8(selgame_Description, _("Create a new public game that anyone can join with a difficulty setting of your choice."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Create a new public game that anyone can join with a difficulty setting of your choice.", "Create a game that nearby consoles can join."), sizeof(selgame_Description));
 		break;
 	case 2:
 		if (provider == SELCONN_ZT) {
-			CopyUtf8(selgame_Description, _("Enter Game ID to join a game already in progress."), sizeof(selgame_Description));
+			CopyUtf8(selgame_Description, NDS_TXT("Enter Game ID to join a game already in progress.", "Join a game already in progress."), sizeof(selgame_Description));
 		} else {
 			CopyUtf8(selgame_Description, _("Enter an IP or a hostname to join a game already in progress."), sizeof(selgame_Description));
 		}
@@ -283,7 +298,7 @@ void selgame_GameSelection_Focus(size_t value)
 		CopyUtf8(selgame_Description, infoString, sizeof(selgame_Description));
 		break;
 	}
-	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH), sizeof(selgame_Description));
+	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH, NDS_WRAP_FONT), sizeof(selgame_Description));
 }
 
 /**
@@ -326,7 +341,7 @@ void selgame_GameSelection_Select(size_t value)
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Label, rect2, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
 
 	const SDL_Rect rect3 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 256), DESCRIPTION_WIDTH, 192 };
-	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark, 1, 16));
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, NDS_DESC_FLAGS, 1, NDS_DESC_LH)); /* NDS-SELMULTI */
 
 	switch (value) {
 	case 0:
@@ -340,7 +355,7 @@ void selgame_GameSelection_Select(size_t value)
 		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Nightmare"), DIFF_NIGHTMARE));
 		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Hell"), DIFF_HELL));
 
-		vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, vecSelGameDlgItems.size(), uiPosition.x + 300, (uiPosition.y + 282), 295, 26, UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiGold));
+		vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, vecSelGameDlgItems.size(), uiPosition.x + 300, (uiPosition.y + 282), 295, NDS_LIST_H, UiFlags::AlignCenter | NDS_LIST_FONT | UiFlags::ColorUiGold)); /* NDS-SELMULTI */
 
 		const SDL_Rect rect5 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 427), 140, 35 };
 		vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("OK"), &UiFocusNavigationSelect, rect5, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
@@ -398,18 +413,18 @@ void selgame_Diff_Focus(size_t value)
 	switch (vecSelGameDlgItems[value]->m_value) {
 	case DIFF_NORMAL:
 		CopyUtf8(selgame_Label, _("Normal"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Normal Difficulty\nThis is where a starting character should begin the quest to defeat Diablo."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Normal Difficulty\nThis is where a starting character should begin the quest to defeat Diablo.", "Normal Difficulty\nFor new characters."), sizeof(selgame_Description));
 		break;
 	case DIFF_NIGHTMARE:
 		CopyUtf8(selgame_Label, _("Nightmare"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Nightmare Difficulty\nThe denizens of the Labyrinth have been bolstered and will prove to be a greater challenge. This is recommended for experienced characters only."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Nightmare Difficulty\nThe denizens of the Labyrinth have been bolstered and will prove to be a greater challenge. This is recommended for experienced characters only.", "Nightmare Difficulty\nStronger monsters. For experienced characters."), sizeof(selgame_Description));
 		break;
 	case DIFF_HELL:
 		CopyUtf8(selgame_Label, _("Hell"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Hell Difficulty\nThe most powerful of the underworld's creatures lurk at the gateway into Hell. Only the most experienced characters should venture in this realm."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Hell Difficulty\nThe most powerful of the underworld's creatures lurk at the gateway into Hell. Only the most experienced characters should venture in this realm.", "Hell Difficulty\nThe strongest monsters. Only for veterans."), sizeof(selgame_Description));
 		break;
 	}
-	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH), sizeof(selgame_Description));
+	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH, NDS_WRAP_FONT), sizeof(selgame_Description));
 }
 
 bool IsDifficultyAllowed(int value)
@@ -498,7 +513,7 @@ void selgame_GameSpeedSelection()
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Label, rect2, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
 
 	const SDL_Rect rect3 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 256), DESCRIPTION_WIDTH, 192 };
-	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark, 1, 16));
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, NDS_DESC_FLAGS, 1, NDS_DESC_LH)); /* NDS-SELMULTI */
 
 	const SDL_Rect rect4 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 211), 295, 35 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Select Game Speed").data(), rect4, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
@@ -508,7 +523,7 @@ void selgame_GameSpeedSelection()
 	vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Faster"), 40));
 	vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Fastest"), 50));
 
-	vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, vecSelGameDlgItems.size(), uiPosition.x + 300, (uiPosition.y + 279), 295, 26, UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiGold));
+	vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, vecSelGameDlgItems.size(), uiPosition.x + 300, (uiPosition.y + 279), 295, NDS_LIST_H, UiFlags::AlignCenter | NDS_LIST_FONT | UiFlags::ColorUiGold)); /* NDS-SELMULTI */
 
 	const SDL_Rect rect5 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 427), 140, 35 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("OK"), &UiFocusNavigationSelect, rect5, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
@@ -524,22 +539,22 @@ void selgame_Speed_Focus(size_t value)
 	switch (vecSelGameDlgItems[value]->m_value) {
 	case 20:
 		CopyUtf8(selgame_Label, _("Normal"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Normal Speed\nThis is where a starting character should begin the quest to defeat Diablo."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Normal Speed\nThis is where a starting character should begin the quest to defeat Diablo.", "Normal Speed\nThe classic pace."), sizeof(selgame_Description));
 		break;
 	case 30:
 		CopyUtf8(selgame_Label, _("Fast"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Fast Speed\nThe denizens of the Labyrinth have been hastened and will prove to be a greater challenge. This is recommended for experienced characters only."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Fast Speed\nThe denizens of the Labyrinth have been hastened and will prove to be a greater challenge. This is recommended for experienced characters only.", "Fast Speed\nMonsters move faster."), sizeof(selgame_Description));
 		break;
 	case 40:
 		CopyUtf8(selgame_Label, _("Faster"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Faster Speed\nMost monsters of the dungeon will seek you out quicker than ever before. Only an experienced champion should try their luck at this speed."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Faster Speed\nMost monsters of the dungeon will seek you out quicker than ever before. Only an experienced champion should try their luck at this speed.", "Faster Speed\nMonsters hunt you quicker."), sizeof(selgame_Description));
 		break;
 	case 50:
 		CopyUtf8(selgame_Label, _("Fastest"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Fastest Speed\nThe minions of the underworld will rush to attack without hesitation. Only a true speed demon should enter at this pace."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, NDS_TXT("Fastest Speed\nThe minions of the underworld will rush to attack without hesitation. Only a true speed demon should enter at this pace.", "Fastest Speed\nOnly for speed demons."), sizeof(selgame_Description));
 		break;
 	}
-	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH), sizeof(selgame_Description));
+	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH, NDS_WRAP_FONT), sizeof(selgame_Description));
 }
 
 void selgame_Speed_Esc()
@@ -577,7 +592,7 @@ void selgame_Password_Init(size_t /*value*/)
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Description:").data(), rect2, UiFlags::FontSize24 | UiFlags::ColorUiSilver));
 
 	const SDL_Rect rect3 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 256), DESCRIPTION_WIDTH, 192 };
-	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark, 1, 16));
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, NDS_DESC_FLAGS, 1, NDS_DESC_LH)); /* NDS-SELMULTI */
 
 	const SDL_Rect rect4 = { (Sint16)(uiPosition.x + 305), (Sint16)(uiPosition.y + 211), 285, 33 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Enter Password").data(), rect4, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));

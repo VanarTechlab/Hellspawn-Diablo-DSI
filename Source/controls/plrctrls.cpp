@@ -1260,6 +1260,43 @@ void InventoryMove(AxisDirection dir)
 
 	const bool isHoldingItem = !heldItem.isEmpty();
 	Size itemSize = isHoldingItem ? GetInventorySize(heldItem) : Size { 1 };
+#ifdef __NDS__ /* NDS-CINTURON2: el cinturon esta a la izquierda de la mochila, 2 columnas x 4 filas */
+	{
+		const bool ndsBeltOk = !isHoldingItem || CanBePlacedOnBelt(*MyPlayer, heldItem);
+		bool ndsHandled = false;
+		if (Slot >= SLOTXY_BELT_FIRST && Slot <= SLOTXY_BELT_LAST) {
+			const int b = Slot - SLOTXY_BELT_FIRST;
+			const int bc = b % 2;
+			const int br = b / 2;
+			ndsHandled = true;
+			if (dir.x == AxisDirectionX_LEFT) {
+				if (bc == 1)
+					Slot -= 1;
+			} else if (dir.x == AxisDirectionX_RIGHT) {
+				if (bc == 0)
+					Slot += 1;
+				else
+					Slot = SLOTXY_INV_FIRST + br * INV_ROW_SLOT_SIZE; /* mochila: misma fila, primera columna */
+			} else if (dir.y == AxisDirectionY_UP) {
+				if (br > 0)
+					Slot -= 2;
+			} else if (dir.y == AxisDirectionY_DOWN) {
+				if (br < 3)
+					Slot += 2;
+			}
+		} else if (dir.x == AxisDirectionX_LEFT && ndsBeltOk && Slot >= SLOTXY_INV_FIRST && Slot <= SLOTXY_INV_LAST
+		    && (Slot - SLOTXY_INV_FIRST) % INV_ROW_SLOT_SIZE == 0) {
+			Slot = SLOTXY_BELT_FIRST + ((Slot - SLOTXY_INV_FIRST) / INV_ROW_SLOT_SIZE) * 2 + 1; /* columna derecha del cinturon */
+			ndsHandled = true;
+		} else if (dir.y == AxisDirectionY_DOWN && Slot >= SLOTXY_INV_ROW4_FIRST && Slot <= SLOTXY_INV_LAST) {
+			ndsHandled = true; /* abajo de la ultima fila no hay nada */
+		}
+		if (ndsHandled) {
+			dir.x = AxisDirectionX_NONE; /* que el codigo original no mueva nada mas */
+			dir.y = AxisDirectionY_NONE;
+		}
+	}
+#endif
 
 	// when item is on cursor (pcurs > 1), this is the real cursor XY
 	if (dir.x == AxisDirectionX_LEFT) {
