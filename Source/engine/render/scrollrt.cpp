@@ -1541,6 +1541,15 @@ void DrawView(const Surface &out, Point startPosition)
 	} else if (PauseMode != 0) {
 		{ gmenu_draw_pause(out); nds_lua_check(126); } /* NDS-CHECK2 */
 	}
+#ifdef __NDS__ /* NDS-MSGFIX: al terminar un aviso (Game saved...), redibujar todo para borrar su recuadro */
+	{
+		static bool ndsMsgWas = false;
+		const bool ndsMsgNow = IsDiabloMsgAvailable();
+		if (ndsMsgWas && !ndsMsgNow)
+			RedrawEverything();
+		ndsMsgWas = ndsMsgNow;
+	}
+#endif
 	if (IsDiabloMsgAvailable()) {
 		{ DrawDiabloMsg(out.subregionY(0, out.h() - GetMainPanel().size.height)); nds_lua_check(127); } /* NDS-CHECK2 */
 	}
