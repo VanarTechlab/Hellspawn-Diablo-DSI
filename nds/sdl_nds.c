@@ -1759,6 +1759,170 @@ static int itx_compose(void)
     return 1;
 }
 
+/* NDS-TECLADO: teclado en pantalla (tactil) para escribir nombres; dibuja en top_buf y lo copia a la tactil */
+static void fnt_char(Uint8 *buf, int px, int py, unsigned char ch, Uint8 col)
+{
+    const ConsoleFont *f = &consoleGetDefault()->font;
+    const int idx = (int)ch - (int)f->asciiOffset;
+    int x, y;
+    if (idx < 0 || idx >= (int)f->numChars || px < 0 || px > LCD_W - 8 || py < 0 || py > LCD_H - 8)
+        return;
+    for (y = 0; y < 8; y++) {
+        Uint8 *dd = buf + (py + y) * LCD_W + px;
+        for (x = 0; x < 8; x++) {
+            int on;
+            if (f->bpp == 1)
+                on = (((const u8 *)f->gfx)[idx * 8 + y] >> x) & 1;
+            else if (f->bpp == 4) {
+                const u8 bb = ((const u8 *)f->gfx)[idx * 32 + y * 4 + (x >> 1)];
+                on = (x & 1) ? (bb >> 4) : (bb & 15);
+            } else
+                on = ((const u8 *)f->gfx)[idx * 64 + y * 8 + x];
+            if (on)
+                dd[x] = col;
+        }
+    }
+}
+static void fnt_text(int x, int y, const char *t, Uint8 col)
+{
+    for (; *t; t++, x += 8)
+        fnt_char(top_buf, x, y, (unsigned char)*t, col);
+}
+static int vk_near(int r, int g, int b)
+{
+    int best = 0, bd = 1 << 30, i;
+    for (i = 0; i < 256; i++) {
+        const u16 cc = BG_PALETTE[i];
+        const int dr = (cc & 31) - r, dg = ((cc >> 5) & 31) - g, db = ((cc >> 10) & 31) - b;
+        const int dist = dr * dr + dg * dg + db * db;
+        if (dist < bd) { bd = dist; best = i; }
+    }
+    return best;
+}
+static void vk_fill(int x, int y, int w, int h, Uint8 c)
+{
+    int j;
+    for (j = 0; j < h; j++)
+        memset(top_buf + (y + j) * LCD_W + x, c, (size_t)w);
+}
+static void vk_frame(int x, int y, int w, int h, Uint8 c)
+{
+    int j;
+    memset(top_buf + y * LCD_W + x, c, (size_t)w);
+    memset(top_buf + (y + h - 1) * LCD_W + x, c, (size_t)w);
+    for (j = 0; j < h; j++) {
+        top_buf[(y + j) * LCD_W + x] = c;
+        top_buf[(y + j) * LCD_W + x + w - 1] = c;
+    }
+}
+typedef struct { short x, y, w, h; char code; } VKey; /* code: letra, o 1 mayus, 2 espacio, 3 borrar, 4 ok */
+static int vk_build(VKey *k)
+{
+    static const char *rows[4] = { "1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM-" };
+    static const short x0[4] = { 3, 3, 15, 40 };
+    int n = 0, r, i;
+    for (r = 0; r < 4; r++)
+        for (i = 0; rows[r][i]; i++) {
+            k[n].x = (short)(x0[r] + i * 25); k[n].y = (short)(44 + r * 28);
+            k[n].w = 24; k[n].h = 26; k[n].code = rows[r][i]; n++;
+        }
+    k[n].x = 3;   k[n].y = 158; k[n].w = 58; k[n].h = 30; k[n].code = 1; n++;
+    k[n].x = 64;  k[n].y = 158; k[n].w = 76; k[n].h = 30; k[n].code = 2; n++;
+    k[n].x = 143; k[n].y = 158; k[n].w = 56; k[n].h = 30; k[n].code = 3; n++;
+    k[n].x = 202; k[n].y = 158; k[n].w = 51; k[n].h = 30; k[n].code = 4; n++;
+    return n;
+}
+void nds_vkbd_input(const char *hint, char *buf, int maxlen)
+{
+    VKey k[48];
+    const int n = vk_build(k);
+    int len, shift, pressed = -1, dirty = 1, i;
+    const Uint8 cBg = (Uint8)vk_near(0, 0, 0), cKey = (Uint8)vk_near(7, 6, 6), cEdge = (Uint8)vk_near(20, 16, 9);
+    const Uint8 cTxt = (Uint8)vk_near(31, 31, 31), cGold = (Uint8)vk_near(28, 23, 12);
+    if (maxlen > 60) maxlen = 60;
+    if (maxlen < 1) maxlen = 1;
+    len = (int)strlen(buf);
+    if (len > maxlen) { len = maxlen; buf[len] = 0; }
+    shift = (len == 0);
+    while (dmaBusy(2))
+        ;
+    do { swiWaitForVBlank(); scanKeys(); } while (keysHeld() & (KEY_A | KEY_B | KEY_START | KEY_TOUCH));
+    for (;;) {
+        u32 down, held;
+        int act = 0;
+        if (dirty) {
+            char line[64];
+            memset(top_buf, cBg, sizeof top_buf);
+            if (hint && *hint) {
+                const int hl = (int)strlen(hint) > 31 ? 31 : (int)strlen(hint);
+                char h2[32];
+                memcpy(h2, hint, (size_t)hl); h2[hl] = 0;
+                fnt_text((LCD_W - hl * 8) / 2, 4, h2, cGold);
+            }
+            vk_frame(6, 16, 244, 22, cEdge);
+            snprintf(line, sizeof line, "%s_", buf);
+            { const int ll = (int)strlen(line); fnt_text(ll > 29 ? 12 - (ll - 29) * 8 : 12, 23, line, cTxt); }
+            for (i = 0; i < n; i++) {
+                const int act_on = (i == pressed) || (k[i].code == 1 && shift);
+                const char *lab;
+                char one[2];
+                vk_fill(k[i].x, k[i].y, k[i].w, k[i].h, act_on ? cGold : cKey);
+                vk_frame(k[i].x, k[i].y, k[i].w, k[i].h, cEdge);
+                switch (k[i].code) {
+                case 1: lab = "MAYUS"; break;
+                case 2: lab = "ESPACIO"; break;
+                case 3: lab = "BORRAR"; break;
+                case 4: lab = "OK"; break;
+                default:
+                    one[0] = (!shift && k[i].code >= 'A' && k[i].code <= 'Z') ? (char)(k[i].code + 32) : k[i].code;
+                    one[1] = 0; lab = one; break;
+                }
+                fnt_text(k[i].x + (k[i].w - (int)strlen(lab) * 8) / 2, k[i].y + (k[i].h - 8) / 2, lab, act_on ? cBg : cTxt);
+            }
+            DC_FlushRange(top_buf, sizeof top_buf);
+            dmaCopyWords(3, top_buf, video_vram, sizeof top_buf);
+            dmaCopyWords(3, top_buf, (Uint8 *)video_vram + 0x10000, sizeof top_buf);
+            dirty = 0;
+        }
+        swiWaitForVBlank();
+        nds_audio_update();
+        scanKeys();
+        down = keysDown();
+        held = keysHeld();
+        if (down & KEY_TOUCH) {
+            touchPosition t;
+            touchRead(&t);
+            for (i = 0; i < n; i++)
+                if (t.px >= k[i].x && t.px < k[i].x + k[i].w && t.py >= k[i].y && t.py < k[i].y + k[i].h) {
+                    pressed = i; act = k[i].code; break;
+                }
+        }
+        if (pressed >= 0 && !(held & KEY_TOUCH)) { pressed = -1; dirty = 1; }
+        if (down & KEY_B) act = 3;
+        if (down & (KEY_A | KEY_START)) act = 4;
+        if (down & KEY_SELECT) act = 1;
+        if (!act)
+            continue;
+        dirty = 1;
+        if (act == 4)
+            break;
+        if (act == 1)
+            shift = !shift;
+        else if (act == 3) {
+            if (len > 0) buf[--len] = 0;
+            if (len == 0) shift = 1;
+        } else {
+            char c = (act == 2) ? ' ' : (char)act;
+            const int letter = (c >= 'A' && c <= 'Z');
+            if (letter && !shift) c = (char)(c + 32);
+            if (len < maxlen) { buf[len++] = c; buf[len] = 0; }
+            if (letter && shift) shift = 0;
+        }
+    }
+    do { swiWaitForVBlank(); scanKeys(); } while (keysHeld() & (KEY_A | KEY_START | KEY_TOUCH));
+    memset(top_buf, 0, sizeof top_buf);
+}
+
 void nds_hud_frame(const unsigned char *panel, int pitch, int xp_permille)
 {
     hud_pan = panel;

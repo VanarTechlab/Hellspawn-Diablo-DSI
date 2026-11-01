@@ -186,6 +186,9 @@ void HandleCtrTextInput(std::string_view textInput)
 
 } // namespace
 
+#ifdef __NDS__
+extern "C" void nds_vkbd_input(const char *hint, char *buf, int maxlen); /* NDS-TECLADO */
+#endif
 bool IsTextInputActive()
 {
 	return UiTextInputState.has_value();
@@ -232,6 +235,18 @@ void UiInitList(void (*fnFocus)(size_t value), void (*fnSelect)(size_t value), v
 			    .cursor = &pItemUIEdit->m_cursor,
 			    .maxLength = pItemUIEdit->m_max_length,
 			});
+#ifdef __NDS__ /* NDS-TECLADO: teclado en pantalla de la DSi */
+			{
+				char ndsBuf[64];
+				size_t ndsI = 0;
+				for (; ndsI < sizeof ndsBuf - 1 && pItemUIEdit->m_value[ndsI] != '\0'; ndsI++)
+					ndsBuf[ndsI] = pItemUIEdit->m_value[ndsI];
+				ndsBuf[ndsI] = '\0';
+				const int ndsMax = (pItemUIEdit->m_max_length > 0 && pItemUIEdit->m_max_length < 60) ? static_cast<int>(pItemUIEdit->m_max_length) : 60;
+				nds_vkbd_input(std::string(pItemUIEdit->m_hint).c_str(), ndsBuf, ndsMax);
+				UiTextInputState->assign(std::string_view(ndsBuf));
+			}
+#endif
 		} else if (item->IsType(UiType::List)) {
 			auto *uiList = static_cast<UiList *>(item.get());
 			SelectedItemMax = std::max(uiList->m_vecItems.size() - 1, static_cast<size_t>(0));
