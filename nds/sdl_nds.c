@@ -1590,6 +1590,25 @@ void nds_ui_frame_scaled(const unsigned char *pixels, int pitch, int w, int h)
     ui_mode = pixels ? 5 : 0;
 }
 
+/* NDS-CINTURON: cinturon (8 casillas de 29x29 del panel, x 205+29*i, y 5) a la izquierda de la tactil, 2x4 */
+#define BL_X 12
+#define BL_Y 44
+#define BL_S 29
+static void belt_draw(void);
+static int belt_hit(int x, int y, int *slot, int *lx, int *ly)
+{
+    int c, r;
+    if (x < BL_X || x >= BL_X + 2 * BL_S || y < BL_Y || y >= BL_Y + 4 * BL_S)
+        return 0;
+    c = (x - BL_X) / BL_S;
+    r = (y - BL_Y) / BL_S;
+    if (slot) *slot = r * 2 + c;
+    if (lx) { *lx = (x - BL_X) % BL_S; if (*lx < 1) *lx = 1; if (*lx > 27) *lx = 27; }
+    if (ly) { *ly = (y - BL_Y) % BL_S; if (*ly < 1) *ly = 1; if (*ly > 27) *ly = 27; }
+    return 1;
+}
+static int belt_on(void) { return ui_mode == 2 && !ui_store && !(ui_wide & 2); }
+
 static void nds_ui_compose(void)
 {
     int x, y;
@@ -1694,6 +1713,8 @@ static void nds_ui_compose(void)
             for (x = 0; x < UI_PW; x++)
                 d[x] = NDS_UI_SHARP ? sharp_pick(s + x * 11 / 6, ui_pitch, 2, 2) : s[x * 11 / 6];
         }
+        if (belt_on()) /* NDS-CINTURON */
+            belt_draw();
     }
 }
 
@@ -1723,6 +1744,11 @@ static void nds_touch_map(u16 *px, u16 *py)
     } else if (ui_mode == 2 && x >= LCD_W - UI_PW) {
         x = UI_X0 + 320 + (x - (LCD_W - UI_PW)) * 11 / 6;
         y = y * 11 / 6;
+    } else if (belt_on() && belt_hit(x, y, 0, 0, 0)) { /* NDS-CINTURON */
+        int slot, lx, ly;
+        belt_hit(x, y, &slot, &lx, &ly);
+        x = UI_X0 + 205 + slot * BL_S + lx;
+        y = 352 + 5 + ly;
     } else { /* NDS-ZOOM: toque sobre el mundo */
         x = x * WORLD_W / LCD_W;
         y = y * WORLD_H / LCD_H;
@@ -1896,6 +1922,28 @@ static int vk_near(int r, int g, int b)
         if (dist < bd) { bd = dist; best = i; }
     }
     return best;
+}
+static void belt_draw(void) /* NDS-CINTURON */
+{
+    static int col_txt = -1, col_bg = -1;
+    static unsigned col_tick;
+    const unsigned char *pan = ui_pix + 352 * ui_pitch; /* panel principal en (448,352) */
+    int i, y;
+    if (col_txt < 0 || ++col_tick >= 120) { /* la paleta cambia entre niveles */
+        col_txt = vk_near(31, 26, 12);
+        col_bg = vk_near(2, 2, 2);
+        col_tick = 0;
+    }
+    for (y = BL_Y - 14; y < BL_Y + 4 * BL_S + 4; y++)
+        memset(comp_buf + y * LCD_W + BL_X - 6, col_bg, 2 * BL_S + 12);
+    for (i = 0; i < 8; i++) {
+        const int dx = BL_X + (i & 1) * BL_S, dy = BL_Y + (i >> 1) * BL_S;
+        const unsigned char *src = pan + 5 * ui_pitch + 205 + i * BL_S;
+        for (y = 0; y < BL_S; y++)
+            memcpy(comp_buf + (dy + y) * LCD_W + dx, src + y * ui_pitch, BL_S);
+    }
+    for (i = 0; "CINTURON"[i]; i++)
+        fnt_char(comp_buf, BL_X - 3 + i * 8, BL_Y - 11, (unsigned char)"CINTURON"[i], (Uint8)col_txt);
 }
 static void vk_fill(int x, int y, int w, int h, Uint8 c)
 {
@@ -3090,6 +3138,38 @@ static void push_button(int down, int x, int y)
     evq_push(&e);
 }
 
+/* NDS-CINTURON: doble toque en el inventario o el cinturon = Shift+clic (mover solo) */
+static SDLMod nds_mod;
+static Uint32 dt_last;
+static int dt_x, dt_y, dt_eat;
+static void push_button_shift(int down, int x, int y)
+{
+    SDL_Event e;
+    memset(&e, 0, sizeof(e));
+    e.button.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+    e.button.which = 1; /* marca: se entrega con Shift */
+    e.button.button = SDL_BUTTON_LEFT;
+    e.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+    e.button.x = (Uint16)x;
+    e.button.y = (Uint16)y;
+    evq_push(&e);
+}
+static int dt_check(int x, int y)
+{
+    const Uint32 now = SDL_GetTicks();
+    if (!belt_on() || !(x >= LCD_W - UI_PW || belt_hit(x, y, 0, 0, 0))) {
+        dt_last = 0;
+        return 0;
+    }
+    if (dt_last && now - dt_last < 400u && abs(x - dt_x) < 12 && abs(y - dt_y) < 12) {
+        dt_last = 0;
+        return 1;
+    }
+    dt_last = now | 1u;
+    dt_x = x;
+    dt_y = y;
+    return 0;
+}
 static int fb_touch; /* NDS-AMISTAD: el lapiz esta sobre el boton PAZ/PVP */
 static int fb_check(const touchPosition *t)
 {
@@ -3170,6 +3250,7 @@ static void input_poll(void)
     if (held & KEY_TOUCH) {
         touchRead(&t);
         if ((t.px != 0 || t.py != 0) && !fb_check(&t)) { /* (0,0) = lectura invalida; NDS-AMISTAD: el boton no es un clic */
+            const int rx = t.px, ry = t.py; /* NDS-CINTURON */
             nds_touch_map(&t.px, &t.py);
             if (!touch_down) {
                 touch_down = 1;
@@ -3177,8 +3258,15 @@ static void input_poll(void)
                 mouse_y = t.py;
                 push_motion(mouse_x, mouse_y, 0, 0);
                 mouse_buttons = SDL_BUTTON(1);
-                push_button(1, mouse_x, mouse_y);
-            } else if (t.px != mouse_x || t.py != mouse_y) {
+                if (dt_check(rx, ry)) { /* NDS-CINTURON: soltar lo cogido con el 1er toque y moverlo con Shift */
+                    push_button(1, mouse_x, mouse_y);
+                    push_button(0, mouse_x, mouse_y);
+                    push_button_shift(1, mouse_x, mouse_y);
+                    push_button_shift(0, mouse_x, mouse_y);
+                    dt_eat = 1;
+                } else
+                    push_button(1, mouse_x, mouse_y);
+            } else if (!dt_eat && (t.px != mouse_x || t.py != mouse_y)) {
                 push_motion(t.px, t.py, t.px - mouse_x, t.py - mouse_y);
                 mouse_x = t.px;
                 mouse_y = t.py;
@@ -3187,7 +3275,10 @@ static void input_poll(void)
     } else if (touch_down) {
         touch_down = 0;
         mouse_buttons = 0;
-        push_button(0, mouse_x, mouse_y);
+        if (dt_eat) /* NDS-CINTURON: el soltar ya se mando */
+            dt_eat = 0;
+        else
+            push_button(0, mouse_x, mouse_y);
     }
 }
 
@@ -3203,6 +3294,8 @@ int SDL_PollEvent(SDL_Event *e)
     if (e) {
         *e = evq[evq_head];
         evq_head = (evq_head + 1) % EVQ_SIZE;
+        if (e->type == SDL_MOUSEBUTTONDOWN || e->type == SDL_MOUSEBUTTONUP) /* NDS-CINTURON */
+            nds_mod = e->button.which == 1 ? KMOD_LSHIFT : KMOD_NONE;
     }
     return 1;
 }
@@ -3221,7 +3314,7 @@ Uint8 SDL_GetMouseState(int *x, int *y)
     if (y) *y = mouse_y;
     return mouse_buttons;
 }
-SDLMod SDL_GetModState(void) { return KMOD_NONE; }
+SDLMod SDL_GetModState(void) { return nds_mod; } /* NDS-CINTURON */
 
 /* ---------------- etapa 3: SD y rutas ---------------- */
 #include <fat.h>

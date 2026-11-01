@@ -4,7 +4,7 @@
 // local_multiplayer que funciono entre DSi y 3DS:
 //  - el anfitrion manda una trama CMD cada pocos ms (con datos para el cliente o vacia)
 //  - cada CMD hace que el cliente conteste automaticamente con su trama REPLY preparada
-// Por ahora: 1 anfitrion + 1 cliente (2 jugadores).
+// NDS-3J: 1 anfitrion + hasta 2 clientes (3 jugadores); lo de un cliente a otro lo reenvia el anfitrion.
 // Encima va una capa fiable y ordenada: numero de secuencia, acuse acumulado, reenvio y troceo.
 // Los paquetes "fuera de banda" (pedir/anunciar partidas) van sin garantias.
 #include "dvlnet/protocol_nds.h"
@@ -32,7 +32,7 @@ namespace devilution::net {
 namespace {
 
 constexpr u32 GameId = 0x44564C58; // "DVLX"
-constexpr int MaxClients = 1;
+constexpr int MaxClients = 2; // NDS-3J: 3 jugadores (anfitrion + 2 clientes)
 constexpr size_t PktSize = 256;      // tamano maximo que se intenta (NDS-MP5: se prueba hacia abajo)
 constexpr size_t HeaderSize = 10; // NDS-MP15: +2 bytes (eco de la sesion del otro lado)
 size_t Pkt = 0;                      // tamano aceptado por la libreria (0 = aun no)
@@ -228,6 +228,23 @@ void ActivatePeer(uint8_t id)
 	Peers[id].active = true;
 }
 
+// NDS-3J: cada mensaje del flujo lleva 1 byte de ruta justo despues del largo:
+//  cliente -> anfitrion: id del destino final (1 = el propio anfitrion, 2.. = el otro cliente)
+//  anfitrion -> cliente: id del origen (1 = el anfitrion, 2.. = el otro cliente)
+//                        RouteGone|id = "el cliente id se ha desconectado" (sin datos)
+constexpr uint8_t RouteGone = 0x80;
+uint32_t LogRelay = 0;
+void QueueRouted(uint8_t id, uint8_t route, const uint8_t *data, size_t n)
+{
+	Peer &p = Peers[id];
+	const size_t L = std::min<size_t>(n, 0xFFFE);
+	p.pending.push_back(static_cast<uint8_t>((L + 1) & 0xFF));
+	p.pending.push_back(static_cast<uint8_t>((L + 1) >> 8));
+	p.pending.push_back(route);
+	if (L != 0)
+		p.pending.insert(p.pending.end(), data, data + L);
+}
+
 // NDS-MP14: si se cae el enlace wifi, el estado del companero se conserva unos segundos por si
 // vuelve (asi la partida no se corta por un tiron de la radio)
 constexpr uint32_t GraceMs = 15000;
@@ -258,6 +275,11 @@ void DropPeer(uint8_t id)
 		return;
 	ResetPeer(id);
 	DisconnectQueue.push_back(id);
+	if (CurRole == Role::Host) { // NDS-3J: avisar a los demas clientes
+		for (uint8_t o = 2; o < NumIds; o++)
+			if (o != id && Peers[o].active)
+				QueueRouted(o, static_cast<uint8_t>(RouteGone | id), nullptr, 0);
+	}
 }
 
 /** Elige lo siguiente que hay que mandar a "id" y lo escribe en f (cabecera + datos). Devuelve el tamano. */
@@ -327,6 +349,31 @@ size_t BuildFrame(uint8_t id, std::array<uint8_t, PktSize> &f)
 	return len;
 }
 
+/** NDS-3J: entrega un mensaje completo, o lo reenvia si es para el otro cliente */
+void RouteMessage(uint8_t from, uint8_t route, const uint8_t *d, size_t n)
+{
+	if (CurRole == Role::Host) {
+		if (route == 1) {
+			Delivered.emplace_back(from, buffer_t(d, d + n));
+		} else if (route >= 2 && route < NumIds && route != from && Peers[route].active) {
+			if (++LogRelay <= 20 || LogRelay % 200 == 0)
+				NetLog("(r%u) reenvio %u -> %u (%u bytes)", static_cast<unsigned>(LogRelay), from, route, static_cast<unsigned>(n));
+			QueueRouted(route, from, d, n);
+		}
+		return;
+	}
+	if ((route & RouteGone) != 0) {
+		const uint8_t gone = route & 0x7F;
+		if (gone >= 2 && gone < NumIds) {
+			NetLog("el anfitrion avisa: el cliente %u se desconecto", gone);
+			DisconnectQueue.push_back(gone);
+		}
+		return;
+	}
+	if (route >= 1 && route < NumIds)
+		Delivered.emplace_back(route, buffer_t(d, d + n));
+}
+
 void HandleFrame(uint8_t from, const uint8_t *d, size_t len)
 {
 	if (len < HeaderSize || from == 0 || from >= NumIds)
@@ -384,7 +431,8 @@ void HandleFrame(uint8_t from, const uint8_t *d, size_t len)
 				break;
 			if (++LogMsgIn <= 20 || LogMsgIn % 100 == 0)
 				NetLog("(n%u) mensaje completo de %u (%u bytes)", static_cast<unsigned>(LogMsgIn), from, static_cast<unsigned>(L));
-			Delivered.emplace_back(from, buffer_t(p.stream.begin() + off + 2, p.stream.begin() + off + 2 + L));
+			if (L >= 1) // NDS-3J: primer byte = ruta
+				RouteMessage(from, p.stream[off + 2], p.stream.data() + off + 3, L - 1);
 			off += 2 + L;
 		}
 		if (off != 0)
@@ -419,8 +467,16 @@ void PollHostMask()
 	LastMask = mask;
 }
 
+uint8_t HostNextClient = 1;
 uint8_t HostClientId()
 {
+	// NDS-3J: cada CMD va a un cliente distinto, por turnos. La trama lleva la sesion del
+	// destinatario (bytes 8-9) y el otro cliente la ignora (pero contesta igual con su REPLY).
+	for (int k = 0; k < NumIds; k++) {
+		HostNextClient = (HostNextClient + 1 >= NumIds) ? 2 : static_cast<uint8_t>(HostNextClient + 1);
+		if (Peers[HostNextClient].active && LostAt[HostNextClient] == 0)
+			return HostNextClient;
+	}
 	for (uint8_t id = 2; id < NumIds; id++)
 		if (Peers[id].active)
 			return id;
@@ -772,17 +828,27 @@ namespace {
 void QueueReliable(uint8_t id, const buffer_t &data)
 {
 	// NDS-MP16: el mensaje va al flujo de salida con su largo delante; se trocea al enviar
-	Peer &p = Peers[id];
-	const size_t L = std::min<size_t>(data.size(), 0xFFFF);
-	p.pending.push_back(static_cast<uint8_t>(L & 0xFF));
-	p.pending.push_back(static_cast<uint8_t>(L >> 8));
-	p.pending.insert(p.pending.end(), data.begin(), data.begin() + L);
+	// NDS-3J: el cliente solo habla con el anfitrion (ruta = destino final);
+	// el anfitrion habla con cada cliente (ruta = 1, el origen es el)
+	if (CurRole == Role::Client)
+		QueueRouted(1, id, data.data(), data.size());
+	else
+		QueueRouted(id, 1, data.data(), data.size());
+}
+/** NDS-3J: en el cliente, el otro cliente (id 2..) se alcanza a traves del anfitrion */
+bool PeerUsable(uint8_t id)
+{
+	if (id == 0 || id >= NumIds)
+		return false;
+	if (CurRole == Role::Client && id >= 2)
+		return Peers[1].active;
+	return Peers[id].active;
 }
 } // namespace
 
 std::expected<void, PacketError> protocol_nds::send(const endpoint &peer, const buffer_t &data)
 {
-	if (peer.id == 0 || peer.id >= NumIds || !Peers[peer.id].active)
+	if (!PeerUsable(peer.id)) // NDS-3J
 		return std::unexpected(PacketError("DSi local: companero no conectado"));
 	QueueReliable(peer.id, data);
 	Service();
@@ -791,7 +857,7 @@ std::expected<void, PacketError> protocol_nds::send(const endpoint &peer, const 
 
 bool protocol_nds::send_oob(const endpoint &peer, const buffer_t &data) const
 {
-	if (peer.id == 0 || peer.id >= NumIds || !Peers[peer.id].active)
+	if (!PeerUsable(peer.id)) // NDS-3J
 		return false;
 	if (++LogMsgOut <= 20 || LogMsgOut % 100 == 0)
 		NetLog("(n%u) OOB a %u (%u bytes)", static_cast<unsigned>(LogMsgOut), peer.id, static_cast<unsigned>(data.size()));
@@ -878,7 +944,7 @@ std::expected<bool, PacketError> protocol_nds::peers_ready()
 
 bool protocol_nds::is_peer_connected(endpoint &peer)
 {
-	return peer.id > 0 && peer.id < NumIds && Peers[peer.id].active;
+	return PeerUsable(peer.id); // NDS-3J
 }
 
 std::string protocol_nds::make_default_gamename()

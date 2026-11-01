@@ -451,7 +451,7 @@ void DrawInfoBox(const Surface &out)
 		PrintInfo(out);
 #ifdef __NDS__ /* NDS-ITEMTXT4: objeto del inventario, cofre o tienda: descripcion a tamano real arriba */
 	if (!ShowUniqueItemInfoBox && !InfoString.empty() && myPlayer.HoldItem.isEmpty()
-	    && (pcursinvitem != -1 || pcursstashitem != StashStruct::EmptyCell || pcursstoreitem != -1)) {
+	    && ((pcursinvitem != -1 && invflag) /* NDS-ITEMTXT5 */ || pcursstashitem != StashStruct::EmptyCell || pcursstoreitem != -1)) {
 		int ndsColor = 0;
 		if (HasAnyOf(InfoColor, UiFlags::ColorBlue))
 			ndsColor = 1;

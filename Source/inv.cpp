@@ -1160,7 +1160,8 @@ void InvDrawSlotBack(const Surface &out, Point targetPosition, Size size, item_q
 
 bool CanBePlacedOnBelt(const Player &player, const Item &item)
 {
-	return FitsInBeltSlot(item)
+	return !item.isScroll() /* NDS-CINTURON: los pergaminos nunca van al cinturon */
+	    && FitsInBeltSlot(item)
 	    && item._itype != ItemType::Gold
 	    && player.CanUseItem(item)
 	    && item.isUsable();
