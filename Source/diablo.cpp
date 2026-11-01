@@ -1332,12 +1332,17 @@ void DiabloSplash()
 
 	auto &intro = gbIsHellfire ? GetOptions().StartUp.hellfireIntro : GetOptions().StartUp.diabloIntro;
 
-	if (*intro != StartUpIntro::Off) {
+#ifdef __NDS__
+#define NDS_INTRO_SIEMPRE true /* NDS-INTRO: la intro siempre al arrancar */
+#else
+#define NDS_INTRO_SIEMPRE false
+#endif
+	if (NDS_INTRO_SIEMPRE || *intro != StartUpIntro::Off) {
 		if (gbIsHellfire)
 			play_movie("gendata\\Hellfire.smk", true);
 		else
 			play_movie("gendata\\diablo1.smk", true);
-		if (*intro == StartUpIntro::Once) {
+		if (!NDS_INTRO_SIEMPRE && *intro == StartUpIntro::Once) {
 			intro.SetValue(StartUpIntro::Off);
 			if (!demo::IsRunning()) SaveOptions();
 		}

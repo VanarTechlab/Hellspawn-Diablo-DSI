@@ -338,8 +338,18 @@ void music_stop()
 	sgnMusicTrack = NUM_MUSIC;
 }
 
+#ifdef __NDS__
+extern "C" void nds_extra_mark(const char *name); /* NDS-MUSICAS2 */
+#endif
 void music_start(_music_id nTrack)
 {
+#ifdef __NDS__ /* NDS-MUSICAS: apuntar la musica como escuchada (Extras > Soundtrack) */
+	{
+		char ndsN[8] = "mus0";
+		ndsN[3] = static_cast<char>('0' + static_cast<int>(nTrack));
+		nds_extra_mark(ndsN);
+	}
+#endif
 	const char *trackPath;
 
 	assert(nTrack < NUM_MUSIC);

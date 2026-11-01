@@ -3638,7 +3638,7 @@ void nds_vid_audio_begin(int rate, int channels, int bits, int vol)
         return;
     nds_mus_volume(vol);
     /* poco adelanto (unos 0,2 s) para que el sonido no vaya retrasado respecto a la imagen */
-    nds_mus_start_ex(rate, channels == 2, vid_read, 4096);
+    nds_mus_start_ex(rate, channels == 2, vid_read, 13230); /* NDS-DSVMARGEN: unos 0,6 s de margen en el anillo (antes 4096 = 0,19 s) */
 }
 
 void nds_vid_audio_push(const void *data, int bytes)
@@ -3693,6 +3693,49 @@ static void dsv_palette(void)
         BG_PALETTE[i] = dsv_pal[i];
 }
 
+/* NDS-CINES: lista de cinematicas vistas en saves/cinematicas.txt */
+int nds_cine_seen(const char *base)
+{
+    char line[48];
+    int found = 0;
+    FILE *f = fopen(nds_r("/devilutionx/saves/cinematicas.txt"), "r");
+    if (!f)
+        return 0;
+    while (!found && fgets(line, sizeof line, f)) {
+        size_t n = strlen(line);
+        while (n && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' '))
+            line[--n] = 0;
+        if (strcmp(line, base) == 0)
+            found = 1;
+    }
+    fclose(f);
+    return found;
+}
+void nds_extra_mark(const char *name) /* NDS-MUSICAS: apuntar sin filtro (musicas) */
+{
+    FILE *f;
+    if (!name || !*name || nds_cine_seen(name))
+        return;
+    f = fopen(nds_r("/devilutionx/saves/cinematicas.txt"), "a");
+    if (f) {
+        fprintf(f, "%s\n", name);
+        fclose(f);
+    }
+}
+static void nds_cine_mark(const char *base)
+{
+    FILE *f;
+    if (strcmp(base, "fprst3") != 0 && strncmp(base, "diabvic", 7) != 0 && strcmp(base, "diabend") != 0)
+        return;
+    if (nds_cine_seen(base))
+        return;
+    f = fopen(nds_r("/devilutionx/saves/cinematicas.txt"), "a");
+    if (f) {
+        fprintf(f, "%s\n", base);
+        fclose(f);
+    }
+}
+
 int nds_dsv_begin(const char *name, int loop)
 {
     char base[40], path[96];
@@ -3708,6 +3751,7 @@ int nds_dsv_begin(const char *name, int loop)
         n++;
     }
     base[n] = 0;
+    nds_cine_mark(base); /* NDS-CINES */
     snprintf(path, sizeof path, nds_r("/devilutionx/dsv/%s.dsv"), base);
     dsv_f = fopen(path, "rb");
     if (!dsv_f)
@@ -3776,26 +3820,62 @@ int nds_dsv_continue(void)
     if (!dsv_f)
         return 0;
     if (dsv_i >= dsv_n) {
-        if (!dsv_loop)
+        if (!dsv_loop) { /* NDS-DSVFIN: dejar que termine de sonar lo que queda en cola (el grito final) antes de cerrar */
+            static u32 fin_t0, fin_vacio;
+            if (dsv_rate && vid_fifo) {
+                const u32 ahora = SDL_GetTicks();
+                if (!fin_t0) {
+                    fin_t0 = ahora;
+                    fin_vacio = 0;
+                }
+                if ((s32)(vid_w - vid_r) > 0)
+                    fin_vacio = 0;
+                else if (!fin_vacio)
+                    fin_vacio = ahora;
+                if (ahora - fin_t0 < 5000 && (!fin_vacio || ahora - fin_vacio < 300)) {
+                    SDL_Delay(5);
+                    return 1;
+                }
+            }
+            fin_t0 = 0;
             return 0;
+        }
         fseek(dsv_f, dsv_data_off, SEEK_SET);
         memset(dsv_frame, 0, LCD_W * LCD_H);
         dsv_i = 0;
         dsv_t0 = SDL_GetTicks();
     }
-    now = SDL_GetTicks();
-    due = dsv_t0 + (u32)((unsigned long long)dsv_i * dsv_us / 1000u);
-    if ((s32)(now - due) < 0) { /* aun no toca: esperar un poco (el juego sigue mirando los botones) */
-        u32 w = due - now;
-        SDL_Delay(w > 5 ? 5 : w);
-        return 1;
+    if (dsv_rate && vid_fifo) { /* NDS-DSVSYNC: el ritmo lo marca el sonido (cola de unos 7 fotogramas) */
+        const s32 fpf = (s32)((unsigned long long)dsv_rate * dsv_us / 1000000u);
+        if ((s32)(vid_w - vid_r) > fpf * 1) { /* NDS-DSVMARGEN: cola de 1 fotograma (el resto del adelanto esta en el anillo) */
+            SDL_Delay(2);
+            return 1;
+        }
+    } else {
+        now = SDL_GetTicks();
+        due = dsv_t0 + (u32)((unsigned long long)dsv_i * dsv_us / 1000u);
+        if ((s32)(now - due) < 0) { /* aun no toca: esperar un poco (el juego sigue mirando los botones) */
+            u32 w = due - now;
+            SDL_Delay(w > 5 ? 5 : w);
+            return 1;
+        }
     }
     if (!dsv_read_frame())
         return 0;
     dsv_i++;
     /* se muestra si no vamos con retraso (o si hace 4 fotogramas que no se muestra ninguno) */
     due = dsv_t0 + (u32)((unsigned long long)dsv_i * dsv_us / 1000u);
-    if ((s32)(SDL_GetTicks() - due) < 0 || dsv_i - dsv_lastshow >= 4) {
+    {
+        int vamos_bien;
+        if (dsv_rate && vid_fifo) { /* NDS-DSVSYNC: con poco sonido en cola vamos atrasados: saltar la imagen */
+            const s32 fpf = (s32)((unsigned long long)dsv_rate * dsv_us / 1000000u);
+            vamos_bien = (s32)(vid_w - vid_r) > 0; /* NDS-DSVMARGEN */
+        } else
+            vamos_bien = (s32)(SDL_GetTicks() - due) < 0;
+        if (!vamos_bien && dsv_i - dsv_lastshow < 4)
+            return 1;
+    }
+    {
         dsv_lastshow = dsv_i;
         nds_ui_frame_scaled(dsv_frame, LCD_W, LCD_W, LCD_H);
         SDL_Flip(&video_surface);

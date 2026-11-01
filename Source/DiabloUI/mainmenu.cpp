@@ -24,6 +24,9 @@
 #include "controls/input.h"
 #include "controls/menu_controls.h"
 #include "utils/algorithm/container.hpp"
+#include "movie.h" /* NDS-MENU */
+#include "engine/sound.h" /* NDS-MENU2: music_start */
+#include "utils/str_cat.hpp"
 #endif
 
 namespace devilution {
@@ -92,6 +95,45 @@ void NdsShowDsiCredits()
 }
 #endif
 
+#ifdef __NDS__ /* NDS-MENU: menu principal con Extras y Cinematicas */
+extern "C" int nds_cine_seen(const char *base);
+int NdsMenuMode = 0; /* 0 = principal, 1 = Extras, 2 = Cinematicas */
+constexpr int NdsExtrasValue = 100;
+constexpr int NdsCineMenuValue = 101;
+constexpr int NdsBackValue = 102;
+constexpr int NdsLockedValue = 103;
+constexpr int NdsCineBase = 110;
+const char *const NdsCineNames[4] = { "Intro", "El Monasterio", "Diablo Derrotado", "El Encapuchado" }; /* NDS-MENU2 */
+constexpr int NdsSoundValue = 104;
+constexpr int NdsTrackBase = 130;
+const _music_id NdsTracks[6] = { TMUSIC_TOWN, TMUSIC_CATHEDRAL, TMUSIC_CATACOMBS, TMUSIC_CAVES, TMUSIC_HELL, TMUSIC_INTRO };
+const char *const NdsTrackNames[6] = { "Tristram", "Catedral", "Catacumbas", "Cuevas", "Infierno", "Tema Principal" };
+bool NdsTrackSeen(int i) /* NDS-MUSICAS: solo las que el jugador ya ha escuchado */
+{
+	char n[8] = "mus0";
+	n[3] = static_cast<char>('0' + static_cast<int>(NdsTracks[i]));
+	return nds_cine_seen(n) != 0;
+}
+const char *const NdsCineFiles[4][3] = { { "diablo1", nullptr, nullptr }, { "fprst3", nullptr, nullptr }, { "diabvic1", "diabvic2", "diabvic3" }, { "diabend", nullptr, nullptr } };
+const char *NdsCineFirstSeen(int i)
+{
+	if (i == 0)
+		return NdsCineFiles[0][0]; /* NDS-MENU2: la intro siempre */
+	for (int j = 0; j < 3; j++)
+		if (NdsCineFiles[i][j] != nullptr && nds_cine_seen(NdsCineFiles[i][j]) != 0)
+			return NdsCineFiles[i][j];
+	return nullptr;
+}
+void NdsPlayCine(int i)
+{
+	const char *f = NdsCineFirstSeen(i);
+	if (f == nullptr)
+		return;
+	const std::string path = StrCat("gendata\\", f, ".smk");
+	play_movie(path.c_str(), true);
+}
+#endif
+
 void UiMainMenuSelect(size_t value)
 {
 	MainMenuResult = (_mainmenu_selections)vecMenuItems[value]->m_value;
@@ -100,6 +142,12 @@ void UiMainMenuSelect(size_t value)
 #ifndef NOEXIT
 void MainmenuEsc()
 {
+#ifdef __NDS__ /* NDS-MENU: en los submenus, B vuelve atras */
+	if (NdsMenuMode != 0) {
+		MainMenuResult = static_cast<_mainmenu_selections>(NdsBackValue);
+		return;
+	}
+#endif
 	const std::size_t last = vecMenuItems.size() - 1;
 	if (SelectedItem == last) {
 		UiMainMenuSelect(last);
@@ -111,6 +159,31 @@ void MainmenuEsc()
 
 void MainmenuLoad(const char *name)
 {
+#ifdef __NDS__ /* NDS-MENU */
+	if (NdsMenuMode == 1) {
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Cinematicas"), NdsCineMenuValue));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Soundtrack"), NdsSoundValue)); /* NDS-MENU2 */
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Credits"), MAINMENU_SHOW_CREDITS));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Creditos DSI Ver."), NdsCreditsValue));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Volver"), NdsBackValue));
+	} else if (NdsMenuMode == 3) { /* NDS-MENU2: Soundtrack */
+		for (int i = 0; i < 6; i++)
+			vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NdsTrackSeen(i) ? NdsTrackNames[i] : "???"), NdsTrackSeen(i) ? NdsTrackBase + i : NdsLockedValue)); /* NDS-MUSICAS */
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Volver"), NdsBackValue));
+	} else if (NdsMenuMode == 2) {
+		for (int i = 0; i < 4; i++) {
+			const bool seen = NdsCineFirstSeen(i) != nullptr;
+			vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(seen ? NdsCineNames[i] : "???"), seen ? NdsCineBase + i : NdsLockedValue));
+		}
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Volver"), NdsBackValue));
+	} else {
+		vecMenuItems.push_back(std::make_unique<UiListItem>(_("Single Player"), MAINMENU_SINGLE_PLAYER));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(_("Multi Player"), MAINMENU_MULTIPLAYER));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Extras"), NdsExtrasValue));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(_("Support"), MAINMENU_SHOW_SUPPORT));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(gbIsHellfire ? _("Exit Hellfire") : _("Exit Diablo"), MAINMENU_EXIT_DIABLO));
+	}
+#else
 	vecMenuItems.push_back(std::make_unique<UiListItem>(_("Single Player"), MAINMENU_SINGLE_PLAYER));
 	vecMenuItems.push_back(std::make_unique<UiListItem>(_("Multi Player"), MAINMENU_MULTIPLAYER));
 #ifndef __NDS__ /* NDS-CREDITOS: sin Settings en la DSi */
@@ -124,6 +197,7 @@ void MainmenuLoad(const char *name)
 #ifndef NOEXIT
 	vecMenuItems.push_back(std::make_unique<UiListItem>(gbIsHellfire ? _("Exit Hellfire") : _("Exit Diablo"), MAINMENU_EXIT_DIABLO));
 #endif
+#endif /* NDS-MENU */
 
 	if (!gbIsSpawn || gbIsHellfire) {
 		ArtBackgroundWidescreen = LoadOptionalClx("ui_art\\mainmenuw.clx");
@@ -142,7 +216,15 @@ void MainmenuLoad(const char *name)
 		vecMainMenuDialog.push_back(std::make_unique<UiArtText>(_("Shareware").data(), rect1, UiFlags::FontSize30 | UiFlags::ColorUiSilver | UiFlags::AlignCenter, 8));
 	}
 
+#ifdef __NDS__ /* NDS-MENU2: listas largas con letra algo mas pequena */
+	{
+		const bool ndsLarga = vecMenuItems.size() > 5;
+		vecMainMenuDialog.push_back(std::make_unique<UiList>(vecMenuItems, vecMenuItems.size(), uiPosition.x + 64, (uiPosition.y + 192), 510, ndsLarga ? 35 : 43,
+		    (ndsLarga ? UiFlags::FontSize30 : UiFlags::FontSize42) | UiFlags::ColorUiGold | UiFlags::AlignCenter, 5));
+	}
+#else
 	vecMainMenuDialog.push_back(std::make_unique<UiList>(vecMenuItems, vecMenuItems.size(), uiPosition.x + 64, (uiPosition.y + 192), 510, 43, UiFlags::FontSize42 | UiFlags::ColorUiGold | UiFlags::AlignCenter, 5));
+#endif
 
 #ifdef __NDS__ /* NDS-FRONT */
 	const SDL_Rect rect2 = { (Sint16)(uiPosition.x + 17), (Sint16)(uiPosition.y + 480 - 36), 605, 21 };
@@ -193,10 +275,37 @@ bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, int att
 		}
 
 		MainmenuFree();
-#ifdef __NDS__ /* NDS-CREDITOS: se muestra la pantalla y se vuelve al menu */
-		if (static_cast<int>(MainMenuResult) == NdsCreditsValue) {
-			NdsShowDsiCredits();
-			MainMenuResult = MAINMENU_NONE;
+#ifdef __NDS__ /* NDS-CREDITOS / NDS-MENU: submenus sin salir del dialogo */
+		{
+			const int r = static_cast<int>(MainMenuResult);
+			if (r == NdsCreditsValue) {
+				NdsShowDsiCredits();
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsExtrasValue) {
+				NdsMenuMode = 1;
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsCineMenuValue) {
+				NdsMenuMode = 2;
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsSoundValue) { /* NDS-MENU2 */
+				NdsMenuMode = 3;
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r >= NdsTrackBase && r < NdsTrackBase + 6) {
+				music_start(NdsTracks[r - NdsTrackBase]);
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsBackValue) {
+				if (NdsMenuMode == 3)
+					music_start(TMUSIC_INTRO); /* al salir del Soundtrack vuelve la musica del menu */
+				NdsMenuMode = NdsMenuMode >= 2 ? 1 : 0;
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsLockedValue) {
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r >= NdsCineBase && r < NdsCineBase + 4) {
+				NdsPlayCine(r - NdsCineBase);
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r != MAINMENU_SHOW_CREDITS) {
+				NdsMenuMode = 0; /* se sale del menu: al volver, el principal (tras Credits se vuelve a Extras) */
+			}
 		}
 #endif
 	}

@@ -36,6 +36,21 @@ bool loop_movie;
 
 void play_movie(const char *pszMovie, bool userCanClose)
 {
+#ifdef __NDS__ /* NDS-CINEFLUSH: que una pulsacion anterior (la del menu o la del logo) no cierre el video nada mas empezar */
+	{
+		SDL_Event ndsEv;
+		const uint32_t ndsT0 = SDL_GetTicks();
+		for (;;) {
+			while (SDL_PollEvent(&ndsEv) != 0) {
+			}
+			const bool ndsHeld = SDL_GetMouseState(nullptr, nullptr) != 0;
+			const uint32_t ndsDt = SDL_GetTicks() - ndsT0;
+			if ((!ndsHeld && ndsDt >= 150) || ndsDt >= 1500)
+				break;
+			SDL_Delay(10);
+		}
+	}
+#endif
 	if (demo::IsRunning())
 		return;
 
