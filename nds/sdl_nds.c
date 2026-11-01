@@ -1542,6 +1542,16 @@ static inline Uint8 sharp_pick(const unsigned char *s, int pitch, int bw, int bh
 static Uint8 comp_buf[LCD_W * LCD_H] __attribute__((aligned(32)));
 static Uint8 *vback; /* NDS-RAPIDO4: pagina de VRAM donde se escribe el mundo (modo 0) */
 
+static int ui_dialog; /* NDS-DIALOGO: hay un dialogo (qtext): la interfaz se baja DLG_OFF filas */
+#define DLG_OFF 30
+void nds_ui_dialog(int on) { ui_dialog = on; }
+static int ui_store; /* NDS-TIENDA2: la tienda esta abierta (recorte ampliado del recuadro) */
+void nds_ui_store(int on) { ui_store = on; }
+#define ST_SX 336 /* recuadro de la tienda en la mitad derecha de la interfaz (NDS-TIENDA2b) */
+#define ST_SY 20
+#define ST_SH 318 /* filas de origen (20-337) que ocupan las 192 de la tactil */
+#define ST_SW 290 /* NDS-TIENDA3: columnas de origen (336-625) */
+#define ST_DW 215 /* ...que ocupan 215 de ancho en la tactil (letra un 23% mas ancha) */
 void nds_ui_frame(const unsigned char *pixels, int pitch, int mode)
 {
     ui_pix = pixels;
@@ -1594,9 +1604,12 @@ static void nds_ui_compose(void)
     }
     if (ui_mode >= 3) {
         for (y = 0; y < LCD_H; y++) {
-            const unsigned char *s = ui_pix + (y * 5 / 2) * ui_pitch;
+            const int sy = (ui_mode == 3 && ui_dialog) ? y - DLG_OFF : y; /* NDS-DIALOGO: cuadro centrado */
+            const unsigned char *s = ui_pix + (sy * 5 / 2) * ui_pitch;
             Uint8 *d = comp_buf + y * LCD_W;
-            if (ui_mode == 3 && y * 5 / 2 + 2 >= 339) /* NDS-HUD4: ni panel ni parte alta de los frascos */
+            if (sy < 0)
+                continue;
+            if (ui_mode == 3 && sy * 5 / 2 + 2 >= 339) /* NDS-HUD4: ni panel ni parte alta de los frascos */
                 continue;
             for (x = 0; x < LCD_W; x++)
                 d[x] = NDS_UI_SHARP ? sharp_pick(s + x * 5 / 2, ui_pitch, 2, 2) : s[x * 5 / 2];
@@ -1604,9 +1617,27 @@ static void nds_ui_compose(void)
     } else if (ui_mode == 1 || ui_mode == 2) {
         int dx0 = ui_mode == 1 ? 0 : LCD_W - UI_PW;
         int sx0 = ui_mode == 1 ? 0 : 320;
+        if (ui_mode == 2 && ui_store) { /* NDS-TIENDA2/3: recuadro de la tienda ampliado, el pixel mas brillante de cada 2x2 */
+            for (y = 0; y < LCD_H; y++) {
+                const unsigned char *s0 = ui_pix + (ST_SY + y * ST_SH / LCD_H) * ui_pitch + ST_SX;
+                const unsigned char *s1 = s0 + ui_pitch;
+                Uint8 *d = comp_buf + y * LCD_W + (LCD_W - ST_DW);
+                for (x = 0; x < ST_DW; x++) {
+                    const int sx = x * ST_SW / ST_DW;
+                    Uint8 a = s0[sx], b = s0[sx + 1], c = s1[sx], e = s1[sx + 1];
+                    if (pal_lum[b] > pal_lum[a]) a = b;
+                    if (pal_lum[c] > pal_lum[a]) a = c;
+                    if (pal_lum[e] > pal_lum[a]) a = e;
+                    d[x] = a;
+                }
+            }
+            return;
+        }
         for (y = 0; y < LCD_H; y++) {
             const unsigned char *s = ui_pix + (y * 11 / 6) * ui_pitch + sx0;
             Uint8 *d = comp_buf + y * LCD_W + dx0;
+            if (y * 11 / 6 + 2 >= 339) /* NDS-TIENDA2: sin las puntas de los frascos ni el panel (franja de colores) */
+                continue;
             for (x = 0; x < UI_PW; x++)
                 d[x] = NDS_UI_SHARP ? sharp_pick(s + x * 11 / 6, ui_pitch, 2, 2) : s[x * 11 / 6];
         }
@@ -1616,12 +1647,20 @@ static void nds_ui_compose(void)
 static void nds_touch_map(u16 *px, u16 *py)
 {
     int x = *px, y = *py;
+    if (ui_mode == 3 && ui_dialog) { /* NDS-DIALOGO */
+        y -= DLG_OFF;
+        if (y < 0)
+            y = 0;
+    }
     if ((ui_mode == 3 && y * 5 / 2 + 2 < 339) || ui_mode == 4) {
         x = UI_X0 + x * 5 / 2;
         y = y * 5 / 2;
     } else if (ui_mode == 1 && x < UI_PW) {
         x = UI_X0 + x * 11 / 6;
         y = y * 11 / 6;
+    } else if (ui_mode == 2 && ui_store && x >= LCD_W - ST_DW) { /* NDS-TIENDA2/3 */
+        x = UI_X0 + ST_SX + (x - (LCD_W - ST_DW)) * ST_SW / ST_DW;
+        y = ST_SY + y * ST_SH / LCD_H;
     } else if (ui_mode == 2 && x >= LCD_W - UI_PW) {
         x = UI_X0 + 320 + (x - (LCD_W - UI_PW)) * 11 / 6;
         y = y * 11 / 6;
@@ -1979,26 +2018,37 @@ static void hud_piece(int px, int dx) /* frasco con su estatua: 104x141 del pane
         }
     }
 }
-static int hud_green_idx = -1;
+static int hud_green_idx = -1, hud_greenhi_idx = -1; /* NDS-XPBAR: verde y verde claro de la experiencia (opcion C) */
 static unsigned hud_green_n;
-static Uint8 hud_green(void) /* color de la experiencia: un indice libre de la paleta de arriba */
+static Uint8 hud_green_hi;
+static Uint8 hud_green(void)
 {
     if (hud_green_idx < 0 || (++hud_green_n & 31) == 0) {
         static unsigned short cnt[256];
-        int i, best = -1;
+        int i, a = -1, b = -1;
         memset(cnt, 0, sizeof cnt);
         for (i = 0; i < LCD_W * 188; i++)
             cnt[top_buf[i]]++;
-        for (i = 255; i > 0; i--)
-            if (cnt[i] == 0 && i != hud_green_idx) { best = i; break; }
-        if (hud_green_idx >= 0 && cnt[hud_green_idx] == 0)
-            best = hud_green_idx;
-        if (best > 0)
-            hud_green_idx = best;
-        else if (hud_green_idx < 0)
-            hud_green_idx = itx_nearest(5, 25, 17);
+        if (hud_green_idx > 0 && cnt[hud_green_idx] == 0)
+            a = hud_green_idx; /* si siguen libres, se mantienen */
+        if (hud_greenhi_idx > 0 && cnt[hud_greenhi_idx] == 0 && hud_greenhi_idx != a)
+            b = hud_greenhi_idx;
+        for (i = 255; i > 0 && (a < 0 || b < 0); i--) {
+            if (cnt[i] != 0 || i == a || i == b)
+                continue;
+            if (a < 0) a = i; else b = i;
+        }
+        if (a < 0)
+            a = hud_green_idx >= 0 ? hud_green_idx : itx_nearest(6, 26, 10);
+        if (b < 0)
+            b = a;
+        hud_green_idx = a;
+        hud_greenhi_idx = b;
     }
-    BG_PALETTE_SUB[hud_green_idx] = RGB15(5, 25, 17);
+    BG_PALETTE_SUB[hud_green_idx] = RGB15(6, 26, 10);
+    if (hud_greenhi_idx != hud_green_idx)
+        BG_PALETTE_SUB[hud_greenhi_idx] = RGB15(13, 31, 17);
+    hud_green_hi = (Uint8)hud_greenhi_idx;
     return (Uint8)hud_green_idx;
 }
 /* NDS-HUD6: panel clasico entero de un solo escalado (columnas 88-560, 13 filas sobre el panel + 128) a 256x92 */
@@ -2162,8 +2212,8 @@ static void nds_hud_compose(void)
         for (y = 188; y < 192; y++) {
             Uint8 *d = top_buf + y * LCD_W;
             hud_touch(d, LCD_W);
-            for (x = 0; x < LCD_W; x++)
-                d[x] = (Uint8)(x < fill ? g : dark);
+            for (x = 0; x < LCD_W; x++) /* NDS-XPBAR: 8 tramos (rayas negras), fila de arriba mas clara */
+                d[x] = (Uint8)(((x & 31) == 31 && x < LCD_W - 1) ? 0 : (x < fill ? (y == 188 ? hud_green_hi : g) : dark));
         }
     }
 }
