@@ -502,6 +502,26 @@ void selhero_Init()
 	SELHERO_DIALOG_HERO_IMG = heroImg.get();
 	vecSelHeroDialog.push_back(std::move(heroImg));
 
+#ifdef __NDS__ /* NDS-SELHERO: estadisticas con letra mas grande y clara, etiquetas cortas */
+	const UiFlags labelFlags = UiFlags::FontSize24 | UiFlags::ColorUiSilver | UiFlags::AlignRight;
+	const UiFlags valueFlags = UiFlags::FontSize24 | UiFlags::ColorUiSilver | UiFlags::AlignCenter;
+	const int labelX = uiPosition.x + 34;
+	const int valueX = uiPosition.x + 154;
+	const int labelWidth = 110;
+	const int valueWidth = 52;
+	const int statHeight = 24;
+
+	vecSelHeroDialog.push_back(std::make_unique<UiArtText>(std::string_view("Level:").data(), MakeSdlRect(labelX, uiPosition.y + 320, labelWidth, statHeight), labelFlags));
+	vecSelHeroDialog.push_back(std::make_unique<UiArtText>(textStats[0], MakeSdlRect(valueX, uiPosition.y + 320, valueWidth, statHeight), valueFlags));
+
+	const char *statLabels[] { "Str:", "Mag:", "Dex:", "Vit:" };
+	int statY = uiPosition.y + 346;
+	for (size_t i = 0; i < sizeof(statLabels) / sizeof(statLabels[0]); ++i) {
+		vecSelHeroDialog.push_back(std::make_unique<UiArtText>(statLabels[i], MakeSdlRect(labelX, statY, labelWidth, statHeight), labelFlags));
+		vecSelHeroDialog.push_back(std::make_unique<UiArtText>(textStats[i + 1], MakeSdlRect(valueX, statY, valueWidth, statHeight), valueFlags));
+		statY += statHeight;
+	}
+#else
 	const UiFlags labelFlags = UiFlags::FontSize12 | UiFlags::ColorUiSilverDark | UiFlags::AlignRight;
 	const UiFlags valueFlags = UiFlags::FontSize12 | UiFlags::ColorUiSilverDark | UiFlags::AlignCenter;
 	const int labelX = uiPosition.x + 39;
@@ -525,6 +545,7 @@ void selhero_Init()
 		vecSelHeroDialog.push_back(std::make_unique<UiArtText>(textStats[i + 1], MakeSdlRect(valueX, statY, valueWidth, statHeight), valueFlags));
 		statY += statHeight;
 	}
+#endif /* NDS-SELHERO */
 }
 
 void selhero_List_Init()
@@ -545,7 +566,11 @@ void selhero_List_Init()
 	}
 	vecSelHeroDlgItems.push_back(std::make_unique<UiListItem>(_("New Hero"), static_cast<int>(selhero_SaveCount)));
 
+#ifdef __NDS__ /* NDS-SELHERO2: nombres mas grandes (fuente 30, 5 visibles) */
+	vecSelDlgItems.push_back(std::make_unique<UiList>(vecSelHeroDlgItems, 5, uiPosition.x + 265, (uiPosition.y + 256), 320, 33, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
+#else
 	vecSelDlgItems.push_back(std::make_unique<UiList>(vecSelHeroDlgItems, 6, uiPosition.x + 265, (uiPosition.y + 256), 320, 26, UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiGold));
+#endif
 
 	const SDL_Rect rect2 = { (Sint16)(uiPosition.x + 585), (Sint16)(uiPosition.y + 244), 25, 178 };
 	vecSelDlgItems.push_back(std::make_unique<UiScrollbar>((*ArtScrollBarBackground)[0], (*ArtScrollBarThumb)[0], *ArtScrollBarArrow, rect2));
