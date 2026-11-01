@@ -54,16 +54,17 @@ void NdsShowDsiCredits()
 		UiFlags flags;
 	};
 	const Line lines[] = {
+		/* NDS-CREDITOS3 */
 		{ "Hellspawn - Diablo DSI", 5, UiFlags::FontSize42 | UiFlags::ColorUiGold },
 		{ "Agradecimiento especial a:", 55, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "Night Stroke", 95, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "por la imagen del menu y el icono", 137, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ "Assets menu e icono", 137, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "Yagatsu18", 179, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "por ser betatester", 221, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
-		{ "DevilutionX", 263, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "por el codigo del port", 305, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ "Demotester", 221, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ "DevilutionX Team", 263, UiFlags::FontSize42 | UiFlags::ColorUiGold },
+		{ "Codigo del Port", 305, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "Blizzard North", 347, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "por crear este juegazo", 389, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ "Creadores de Diablo", 389, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "Pulsa un boton para volver", 450, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark },
 	};
 	for (const Line &l : lines) {
@@ -97,6 +98,7 @@ void NdsShowDsiCredits()
 
 #ifdef __NDS__ /* NDS-MENU: menu principal con Extras y Cinematicas */
 extern "C" int nds_cine_seen(const char *base);
+extern "C" void nds_ui_mainmenu(int on); /* NDS-V12 */
 int NdsMenuMode = 0; /* 0 = principal, 1 = Extras, 2 = Cinematicas */
 constexpr int NdsExtrasValue = 100;
 constexpr int NdsCineMenuValue = 101;
@@ -226,12 +228,13 @@ void MainmenuLoad(const char *name)
 	vecMainMenuDialog.push_back(std::make_unique<UiList>(vecMenuItems, vecMenuItems.size(), uiPosition.x + 64, (uiPosition.y + 192), 510, 43, UiFlags::FontSize42 | UiFlags::ColorUiGold | UiFlags::AlignCenter, 5));
 #endif
 
-#ifdef __NDS__ /* NDS-FRONT */
-	const SDL_Rect rect2 = { (Sint16)(uiPosition.x + 17), (Sint16)(uiPosition.y + 480 - 36), 605, 21 };
+#ifdef __NDS__ /* NDS-FRONT + NDS-VERSION: letra 24 centrada, un poco mas arriba */
+	const SDL_Rect rect2 = { (Sint16)(uiPosition.x), (Sint16)(uiPosition.y + 480 - 58), 640, 26 };
+	vecMainMenuDialog.push_back(std::make_unique<UiArtText>(name, rect2, UiFlags::FontSize24 | UiFlags::ColorUiSilver | UiFlags::AlignCenter));
 #else
 	const SDL_Rect rect2 = { 17, (Sint16)(gnScreenHeight - 36), 605, 21 };
-#endif
 	vecMainMenuDialog.push_back(std::make_unique<UiArtText>(name, rect2, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark));
+#endif
 
 #ifndef NOEXIT
 	UiInitList(nullptr, UiMainMenuSelect, MainmenuEsc, vecMainMenuDialog, true);
@@ -267,14 +270,24 @@ bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, int att
 		mainmenu_restart_repintro(); // for automatic starts
 
 		while (MainMenuResult == MAINMENU_NONE) {
+#ifdef __NDS__ /* NDS-V12: version arriba solo en el menu principal (no en Extras) */
+			nds_ui_mainmenu(NdsMenuMode == 0 ? 1 : 0);
+#endif
 			UiClearScreen();
 			UiPollAndRender();
+#ifdef __NDS__ /* NDS-ATRACCION: solo en el menu principal, no en los submenus */
+			if (NdsMenuMode == 0 && SDL_GetTicks() >= dwAttractTicks && (HaveIntro() || gbIsHellfire)) {
+#else
 			if (SDL_GetTicks() >= dwAttractTicks && (HaveIntro() || gbIsHellfire)) {
+#endif
 				MainMenuResult = MAINMENU_ATTRACT_MODE;
 			}
 		}
 
 		MainmenuFree();
+#ifdef __NDS__ /* NDS-V12 */
+		nds_ui_mainmenu(0);
+#endif
 #ifdef __NDS__ /* NDS-CREDITOS / NDS-MENU: submenus sin salir del dialogo */
 		{
 			const int r = static_cast<int>(MainMenuResult);

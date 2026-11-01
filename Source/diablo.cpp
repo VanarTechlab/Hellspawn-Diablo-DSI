@@ -3104,8 +3104,18 @@ void LoadGameLevelStopMusic(_music_id neededTrack)
 		music_stop();
 }
 
+#ifdef __NDS__
+extern "C" void nds_extra_mark(const char *name); /* NDS-MUSDESBLOQUEO */
+#endif
 void LoadGameLevelStartMusic(_music_id neededTrack)
 {
+#ifdef __NDS__ /* NDS-MUSDESBLOQUEO: la musica de este piso queda desbloqueada en Soundtrack */
+	if (neededTrack < NUM_MUSIC) {
+		char ndsN[8] = "mus0";
+		ndsN[3] = static_cast<char>('0' + static_cast<int>(neededTrack));
+		nds_extra_mark(ndsN);
+	}
+#endif
 	if (sgnMusicTrack != neededTrack)
 		music_start(neededTrack);
 

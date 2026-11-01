@@ -1386,6 +1386,8 @@ extern "C" void nds_ui_spells(int on); /* NDS-HECHIZOS */
 extern "C" void nds_ui_gmenu(int on); /* NDS-MENUTRANS */
 extern "C" void nds_ui_wide(int w); /* NDS-PANELANCHO */
 extern "C" void nds_ui_friendly(int f); /* NDS-AMISTAD */
+void NdsDrawDurIcons(const Surface &out); /* NDS-DURABILIDAD */
+void NdsPouchSync(Player &player); /* NDS-MONEDERO */
 extern "C" void nds_levelup(int lvl); /* NDS-NIVEL: aviso de nivel */
 extern "C" void nds_ui_statpts(int on);
 extern "C" int nds_take_chrpanel(void);
@@ -1422,6 +1424,7 @@ void DrawView(const Surface &out, Point startPosition)
 	nds_ui_gmenu(gmenu_is_active() ? 1 : 0); /* NDS-MENUTRANS */
 	nds_ui_wide(((ndsUiMode == 1 && CharFlag) ? 1 : 0) | ((ndsUiMode == 2 && SpellbookFlag) ? 2 : 0)); /* NDS-PANELANCHO */
 	nds_ui_friendly(gbIsMultiplayer ? (MyPlayer->friendlyMode ? 1 : 2) : 0); /* NDS-AMISTAD */
+	NdsPouchSync(*MyPlayer); /* NDS-MONEDERO */
 	if (gbIsMultiplayer && nds_take_friendly() != 0)
 		NetSendCmd(true, CMD_FRIENDLYMODE);
 	{ /* NDS-NIVEL: aviso al subir un nivel y boton "+" mientras haya puntos */
@@ -1530,6 +1533,11 @@ void DrawView(const Surface &out, Point startPosition)
 		{ DrawSpellBook(ui); nds_lua_check(110); } /* NDS-CHECK2 */
 	}
 
+#ifdef __NDS__ /* NDS-DURABILIDAD: arriba junto al minimapa, no en la tactil */
+	if (NdsUiSdl != nullptr)
+		NdsDrawDurIcons(ui);
+	else
+#endif
 	{ DrawDurIcon(ui); nds_lua_check(111); } /* NDS-CHECK2 */
 
 #ifdef __NDS__ /* NDS-NIVELBOTON: no tapar el menu, los dialogos ni la lista de hechizos */

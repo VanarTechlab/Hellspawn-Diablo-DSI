@@ -39,7 +39,17 @@ namespace devilution {
 namespace {
 
 const SDL_Rect VIEWPORT = { 0, 114, 640, 251 };
+#ifdef __NDS__ /* NDS-CREDITOS2: letra 24 y lineas mas separadas */
+const int LINE_H = 28;
+#define NDS_CRED_WRAP GameFont24
+#define NDS_CRED_FLAGS (UiFlags::FontSize24 | UiFlags::ColorUiSilver)
+#define NDS_CRED_SPACING 1
+#else
 const int LINE_H = 22;
+#define NDS_CRED_WRAP FontSizeDialog
+#define NDS_CRED_FLAGS (UiFlags::FontSizeDialog | UiFlags::ColorDialogWhite)
+#define NDS_CRED_SPACING -1
+#endif
 
 // The maximum number of visible lines is the number of whole lines
 // (VIEWPORT.h / LINE_H) rounded up, plus one extra line for when
@@ -61,7 +71,7 @@ public:
 				indexFirstNotTab++;
 			}
 
-			const std::string paragraphs = WordWrapString(orgText.substr(indexFirstNotTab), 580 - offset, FontSizeDialog);
+			const std::string paragraphs = WordWrapString(orgText.substr(indexFirstNotTab), 580 - offset, NDS_CRED_WRAP); /* NDS-CREDITOS2 */
 
 			size_t previous = 0;
 			while (true) {
@@ -144,7 +154,7 @@ void CreditsRenderer::Render()
 
 		const Surface &out = Surface(DiabloUiSurface(), viewport);
 		DrawString(out, lineContent.text, Point { dstRect.x, dstRect.y },
-		    { .flags = UiFlags::FontSizeDialog | UiFlags::ColorDialogWhite, .spacing = -1 });
+		    { .flags = NDS_CRED_FLAGS, .spacing = NDS_CRED_SPACING }); /* NDS-CREDITOS2 */
 	}
 }
 

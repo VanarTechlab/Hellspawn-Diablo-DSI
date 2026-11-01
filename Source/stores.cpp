@@ -1413,6 +1413,9 @@ void SmithPremiumBuyEnter()
 
 bool StoreGoldFit(Item &item)
 {
+#ifdef __NDS__ /* NDS-MONEDERO: el oro va a montones sin casillas */
+	return item._iIvalue <= RoomForGold();
+#endif
 	const int cost = item._iIvalue;
 
 	const Size itemSize = GetInventorySize(item);

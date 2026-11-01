@@ -2470,9 +2470,22 @@ static void nds_hud_compose(void)
                 }
             }
             return; /* sin HUD mientras el panel del personaje esta abierto */
-        } else
+        } else {
         for (y = 0; y < 111; y++) /* NDS-HUD6d: minimapa 256x111 hasta encima de las bolas */
             memcpy(top_buf + y * LCD_W, map + y * hud_pitch, LCD_W);
+        { /* NDS-DURABILIDAD: iconos de equipo (188x40 en x 260 de la interfaz) a la mitad, arriba a la derecha */
+            const unsigned char *ic = map + 260;
+            for (y = 0; y < 20; y++) {
+                const unsigned char *s0 = ic + (2 * y) * hud_pitch;
+                Uint8 *d = top_buf + (2 + y) * LCD_W + (LCD_W - 96);
+                for (x = 0; x < 94; x++) {
+                    const Uint8 v = s0[2 * x];
+                    if (v)
+                        d[x] = v;
+                }
+            }
+        }
+        }
     }
     /* NDS-HUD6: mitad de abajo = panel clasico de un solo escalado + texto 8x8 en el cuadro */
     hud_full();
@@ -2875,6 +2888,57 @@ const char *nds_prof_line(int n)
 
 /* NDS-ARRIBA: imagen propia en la pantalla de arriba durante los menus */
 static int nds_top_img_on, nds_top_img_tried;
+/* NDS-V12: texto de version sobre la imagen de arriba (solo menu principal) */
+#define NDS_VER_TXT "V1.4"
+#define VER_W (4 * 8 + 2)
+#define VER_H 10
+#define VER_X (LCD_W - VER_W - 3)
+#define VER_Y (LCD_H - VER_H - 3)
+static int ui_mainmenu, ver_drawn;
+static u16 ver_save[VER_W * VER_H];
+void nds_ui_mainmenu(int on) { ui_mainmenu = on; }
+static void ver_update(void)
+{
+    u16 *vr = (u16 *)BG_BMP_RAM_SUB(0);
+    const ConsoleFont *f = &consoleGetDefault()->font;
+    int x, y, i;
+    if (!nds_top_img_on) {
+        ver_drawn = 0;
+        return;
+    }
+    if (ui_mainmenu && !ver_drawn) {
+        for (y = 0; y < VER_H; y++)
+            for (x = 0; x < VER_W; x++)
+                ver_save[y * VER_W + x] = vr[(VER_Y + y) * 256 + VER_X + x];
+        for (i = 0; NDS_VER_TXT[i]; i++) {
+            const int idx = (int)(unsigned char)NDS_VER_TXT[i] - (int)f->asciiOffset;
+            if (idx < 0 || idx >= (int)f->numChars)
+                continue;
+            for (y = 0; y < 8; y++)
+                for (x = 0; x < 8; x++) {
+                    int on;
+                    if (f->bpp == 1)
+                        on = (((const u8 *)f->gfx)[idx * 8 + y] >> x) & 1;
+                    else if (f->bpp == 4) {
+                        const u8 bb = ((const u8 *)f->gfx)[idx * 32 + y * 4 + (x >> 1)];
+                        on = (x & 1) ? (bb >> 4) : (bb & 15);
+                    } else
+                        on = ((const u8 *)f->gfx)[idx * 64 + y * 8 + x];
+                    if (on) {
+                        const int px = VER_X + 1 + i * 8 + x, py = VER_Y + 1 + y;
+                        vr[(py + 1) * 256 + px + 1] = 0x8000; /* sombra negra */
+                        vr[py * 256 + px] = 0x8000 | (12 << 10) | (26 << 5) | 31; /* dorado */
+                    }
+                }
+        }
+        ver_drawn = 1;
+    } else if (!ui_mainmenu && ver_drawn) {
+        for (y = 0; y < VER_H; y++)
+            for (x = 0; x < VER_W; x++)
+                vr[(VER_Y + y) * 256 + VER_X + x] = ver_save[y * VER_W + x];
+        ver_drawn = 0;
+    }
+}
 static void nds_top_img_show(void)
 {
     if (nds_top_img_tried)
@@ -2889,6 +2953,7 @@ static void nds_top_img_show(void)
         DC_FlushRange(buf, LCD_W * LCD_H * 2);
         dmaCopyWords(3, buf, BG_BMP_RAM_SUB(0), LCD_W * LCD_H * 2);
         nds_top_img_on = 1;
+        ver_drawn = 0; /* NDS-V12: imagen limpia */
     }
     free(buf);
     fclose(f);
@@ -3017,6 +3082,7 @@ int SDL_Flip(SDL_Surface *s)
             nds_top_img_show();
         if (!nds_top_img_on)
             dmaFillWords(0, video_vram_sub, LCD_W * LCD_H);
+        ver_update(); /* NDS-V12 */
     }
     else if (video_vram_sub && hud_pan) { /* NDS-HUD */
         static unsigned hud_n; /* NDS-RAPIDO4: HUD de arriba 1 de cada 2 fotogramas (NDS-RAPIDO7) */
@@ -3681,6 +3747,7 @@ static u16 mus_t3_last; /* (ya no se usa: NDS-MP1) */
    Los temporizadores 0/1 cuentan ticks del bus/64 (periodo de 523 ticks por "ms").
    El canal de sonido avanza una muestra cada mus_period ticks del bus. */
 static u32 mus_period, mus_tick_last, mus_bus_acc;
+#define MUS_T0P ((u32)(0x10000u - (u16)TIMER_FREQ_64(1000))) /* NDS-MUSRELOJ: tics reales por vuelta del temporizador 0 (524) */
 static u32 mus_ticks64(void)
 {
     u16 a, b, c;
@@ -3689,11 +3756,11 @@ static u32 mus_ticks64(void)
         b = TIMER_DATA(0);
         c = TIMER_DATA(1);
     } while (a != c);
-    return (u32)a * 523u + (u32)(u16)(b - (u16)TIMER_FREQ_64(1000));
+    return (u32)a * MUS_T0P + (u32)(u16)(b - (u16)TIMER_FREQ_64(1000)); /* NDS-MUSRELOJ */
 }
 static u32 mus_advance(void)
 {
-    const u32 wrap = 65536u * 523u;
+    const u32 wrap = 65536u * MUS_T0P; /* NDS-MUSRELOJ */
     u32 now = mus_ticks64(), d, n;
     d = now >= mus_tick_last ? now - mus_tick_last : now + wrap - mus_tick_last;
     mus_tick_last = now;

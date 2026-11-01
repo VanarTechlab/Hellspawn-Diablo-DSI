@@ -1,4 +1,5 @@
 #include "control_panel.hpp"
+#include <cstring> /* NDS-DURABILIDAD */
 #include "control.hpp"
 #include "control_chat.hpp"
 #include "control_flasks.hpp"
@@ -163,6 +164,9 @@ int CapStatPointsToAdd(int remainingStatPoints, const Player &player, CharacterA
 	return std::min(remainingStatPoints, pointsToReachCap);
 }
 
+#ifdef __NDS__
+int NdsDurY = 0; /* NDS-DURABILIDAD: fila de abajo de los iconos (0 = la normal) */
+#endif
 int DrawDurIcon4Item(const Surface &out, Item &pItem, int x, int c)
 {
 	const int durabilityThresholdGold = 5;
@@ -205,7 +209,11 @@ int DrawDurIcon4Item(const Surface &out, Item &pItem, int x, int c)
 	}
 
 	// Draw icon
+#ifdef __NDS__ /* NDS-DURABILIDAD */
+	const int y = NdsDurY != 0 ? NdsDurY : -17 + GetMainPanel().position.y;
+#else
 	const int y = -17 + GetMainPanel().position.y;
+#endif
 	if (partition > 0) {
 		const Surface stenciledBuffer = out.subregionY(y - partition, partition);
 		ClxDraw(stenciledBuffer, { x, partition }, (*pDurIcons)[c + 8]); // Gold icon
@@ -753,6 +761,21 @@ void ReleaseChrBtns(bool addAllStatPoints)
 	}
 }
 
+#ifdef __NDS__ /* NDS-DURABILIDAD: iconos en la zona libre x 260-447, filas 0-39 de la interfaz */
+void NdsDrawDurIcons(const Surface &out)
+{
+	for (int y = 0; y < 40; y++)
+		std::memset(out.at(260, y), 0, 188);
+	NdsDurY = 36;
+	Player &myPlayer = *MyPlayer;
+	int x = 447 - 32;
+	x = DrawDurIcon4Item(out, myPlayer.InvBody[INVLOC_HEAD], x, 3);
+	x = DrawDurIcon4Item(out, myPlayer.InvBody[INVLOC_CHEST], x, 2);
+	x = DrawDurIcon4Item(out, myPlayer.InvBody[INVLOC_HAND_LEFT], x, 0);
+	DrawDurIcon4Item(out, myPlayer.InvBody[INVLOC_HAND_RIGHT], x, 0);
+	NdsDurY = 0;
+}
+#endif
 void DrawDurIcon(const Surface &out)
 {
 	const bool hasRoomBetweenPanels = RightPanel.position.x - (LeftPanel.position.x + LeftPanel.size.width) >= 16 + (32 + 8 + 32 + 8 + 32 + 8 + 32) + 16;

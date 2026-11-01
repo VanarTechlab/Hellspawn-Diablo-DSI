@@ -286,7 +286,7 @@ extern "C" void nds_extra_mark(const char *name); /* NDS-MUSICAS2 */
 void music_start(_music_id nTrack)
 {
 #ifdef __NDS__ /* NDS-MUSICAS: apuntar la musica como escuchada (Extras > Soundtrack) */
-	{
+	if (nTrack == TMUSIC_INTRO) { /* NDS-MUSDESBLOQUEO: las de los pisos se apuntan al entrar en el nivel */
 		char ndsN[8] = "mus0";
 		ndsN[3] = static_cast<char>('0' + static_cast<int>(nTrack));
 		nds_extra_mark(ndsN);
