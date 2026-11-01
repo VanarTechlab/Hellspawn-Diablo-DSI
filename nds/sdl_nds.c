@@ -2219,6 +2219,7 @@ static void hud_flask(int px, int dx)
 
 static Uint8 chr_bg[LCD_W * LCD_H]; /* NDS-PERSONAJE7b: fondo limpio del panel del personaje, ya al 80% */
 static int chr_bg_ok;
+static Uint8 chr_hdr[320 * 111]; /* NDS-PERSONAJE7c: fondo limpio de la cabecera a tamano completo */
 void nds_chr_bg(const unsigned char *p, int pitch, int w, int h)
 {
     int x, y;
@@ -2230,6 +2231,8 @@ void nds_chr_bg(const unsigned char *p, int pitch, int w, int h)
         for (x = 0; x < LCD_W; x++)
             d[x] = src[x * 5 / 4];
     }
+    for (y = 0; y < 111; y++) /* NDS-PERSONAJE7c */
+        memcpy(chr_hdr + y * 320, p + y * pitch, 320);
     chr_bg_ok = 1;
 }
 static inline int hud_mir(int v, int n) /* NDS-PERSONAJE6: repeticion en espejo */
@@ -2290,6 +2293,13 @@ static void nds_hud_compose(void)
                     }
                     s0 = cp + ry * hud_pitch;
                     s1 = s0 + hud_pitch;
+                    if (band && chr_bg_ok && ry + 1 < 111) { /* NDS-PERSONAJE7c: si es piedra, el fondo continuo (sin cortes) */
+                        const Uint8 *h0 = chr_hdr + ry * 320, *h1 = h0 + 320;
+                        if (s0[sx] == h0[sx] && s0[sx + 1] == h0[sx + 1] && s1[sx] == h1[sx] && s1[sx + 1] == h1[sx + 1]) {
+                            d[x] = chr_bg[y * LCD_W + x];
+                            continue;
+                        }
+                    }
                     a = s0[sx]; b = s0[sx + 1]; c = s1[sx]; e = s1[sx + 1];
                     if (pal_lum[b] > pal_lum[a]) a = b;
                     if (pal_lum[c] > pal_lum[a]) a = c;
