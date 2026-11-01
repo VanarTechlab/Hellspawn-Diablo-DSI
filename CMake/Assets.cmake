@@ -218,6 +218,9 @@ set(devilutionx_assets
   txtdata/towners/quest_dialog.tsv
   txtdata/towners/towners.tsv
   ui_art/diablo.pal
+  ui_art/hellspawn.clx
+  ui_art/hellspawn.pal
+  ui_art/hellspawn_arriba.bin
   ui_art/creditsw.clx
   ui_art/dvl_but_sml.clx
   ui_art/dvl_lrpopup.clx
