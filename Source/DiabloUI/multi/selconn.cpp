@@ -83,7 +83,7 @@ void SelconnLoad()
 	vecConnItems.push_back(std::make_unique<UiListItem>(_(ConnectionNames[SELCONN_TCP]), SELCONN_TCP));
 #endif
 #endif
-	vecConnItems.push_back(std::make_unique<UiListItem>(_(ConnectionNames[SELCONN_LOOPBACK]), SELCONN_LOOPBACK));
+	vecConnItems.push_back(std::make_unique<UiListItem>(std::string_view(ConnectionNames[SELCONN_LOOPBACK]), SELCONN_LOOPBACK)); /* NDS-OFFLINE */
 
 	UiAddBackground(&vecSelConnDlg);
 	UiAddLogo(&vecSelConnDlg);
@@ -165,7 +165,8 @@ void SelconnFocus(size_t value)
 		break;
 	case SELCONN_ZT:
 #ifdef __NDS__ /* NDS-MP2 */
-		CopyUtf8(selconn_Description, "DSi/3DS cercanas, sin router. Una crea la partida y las otras se unen.", sizeof(selconn_Description));
+		CopyUtf8(selconn_Description, GetLanguageCode() == "es" ? "DSi/3DS cercanas, sin router. Una crea la partida y las otras se unen." /* NDS-IDIOMA */
+		    : "Nearby DSi/3DS, no router. One console creates the game and the others join.", sizeof(selconn_Description));
 		players = 3; /* NDS-SELMULTI: anfitrion + 2 (NDS-3J) */
 		break;
 #else
@@ -180,7 +181,7 @@ void SelconnFocus(size_t value)
 	}
 
 #ifdef __NDS__ /* NDS-SELMULTI: texto corto, cabe a tamano 24 */
-	CopyUtf8(selconn_MaxPlayers, FormatRuntime("Players: {:d}", players), sizeof(selconn_MaxPlayers));
+	CopyUtf8(selconn_MaxPlayers, FormatRuntime(GetLanguageCode() == "es" ? "Jugadores: {:d}" : "Players: {:d}", players), sizeof(selconn_MaxPlayers)); /* NDS-OFFLINE */
 #else
 	CopyUtf8(selconn_MaxPlayers, FormatRuntime(_("Players Supported: {:d}"), players), sizeof(selconn_MaxPlayers));
 #endif

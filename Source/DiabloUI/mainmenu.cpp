@@ -52,6 +52,26 @@ std::vector<std::unique_ptr<UiListItem>> vecMenuItems;
 
 _mainmenu_selections MainMenuResult;
 
+#ifdef __NDS__ /* NDS-IDIOMA: textos propios en espanol o ingles segun el idioma del juego */
+extern "C" void nds_set_lang_es(int on);
+bool NdsEs()
+{
+	return GetLanguageCode() == "es";
+}
+#define NDS_T(es, en) (NdsEs() ? (es) : (en))
+constexpr int NdsLangValue = 106;
+constexpr int NdsLangEn = 140;
+constexpr int NdsLangEs = 141;
+void NdsSetLanguage(const char *code)
+{
+	auto &opt = GetOptions().Language.code;
+	opt = std::string_view(code);
+	opt.SetActiveListIndex(opt.GetActiveListIndex()); /* aplica el cambio como el menu de opciones */
+	SaveOptions();
+	nds_set_lang_es(NdsEs() ? 1 : 0);
+}
+#endif
+
 #ifdef __NDS__ /* NDS-CREDITOS: pantalla de agradecimientos de la version DSi */
 constexpr int NdsCreditsValue = MAINMENU_SETTINGS; /* Settings no se muestra en la DSi: se reutiliza su valor */
 
@@ -69,16 +89,16 @@ void NdsShowDsiCredits()
 	const Line lines[] = {
 		/* NDS-CREDITOS3 */
 		{ "Hellspawn - Diablo DSI", 5, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "Agradecimiento especial a:", 55, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ NDS_T("Agradecimiento especial a:", "Special thanks to:"), 55, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "Night Stroke", 95, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "Assets menu e icono", 137, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ NDS_T("Assets menu e icono", "Menu assets and icon"), 137, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "Yagatsu18", 179, UiFlags::FontSize42 | UiFlags::ColorUiGold },
 		{ "Demotester", 221, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "DevilutionX Team", 263, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "Codigo del Port", 305, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ NDS_T("Codigo del Port", "Port code"), 305, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
 		{ "Blizzard North", 347, UiFlags::FontSize42 | UiFlags::ColorUiGold },
-		{ "Creadores de Diablo", 389, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
-		{ "Pulsa un boton para volver", 450, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark },
+		{ NDS_T("Creadores de Diablo", "Creators of Diablo"), 389, UiFlags::FontSize30 | UiFlags::ColorUiSilver },
+		{ NDS_T("Pulsa un boton para volver", "Press a button to go back"), 450, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark },
 	};
 	for (const Line &l : lines) {
 		const SDL_Rect rect = { (Sint16)(ui.x), (Sint16)(ui.y + l.y), 640, 50 };
@@ -123,6 +143,8 @@ constexpr int NdsSoundValue = 104;
 constexpr int NdsTrackBase = 130;
 const _music_id NdsTracks[6] = { TMUSIC_TOWN, TMUSIC_CATHEDRAL, TMUSIC_CATACOMBS, TMUSIC_CAVES, TMUSIC_HELL, TMUSIC_INTRO };
 const char *const NdsTrackNames[6] = { "Tristram", "Catedral", "Catacumbas", "Cuevas", "Infierno", "Tema Principal" };
+const char *const NdsTrackNamesEn[6] = { "Tristram", "Cathedral", "Catacombs", "Caves", "Hell", "Main Theme" }; /* NDS-IDIOMA */
+const char *const NdsCineNamesEn[4] = { "Intro", "The Monastery", "Diablo Defeated", "The Hooded One" }; /* NDS-IDIOMA */
 bool NdsTrackSeen(int i) /* NDS-MUSICAS: solo las que el jugador ya ha escuchado */
 {
 	char n[8] = "mus0";
@@ -193,6 +215,10 @@ void NdsShowBestiary()
 	std::unique_ptr<TSnd> deathSnd;
 	bool dying = false;
 	uint32_t dieStart = 0;
+	bool dead = false, attacking = false; /* NDS-BESTIARIO4 */
+	uint32_t idleSince = 0, attackStart = 0;
+	OptionalOwnedClxSpriteListOrSheet sprAttack;
+	std::unique_ptr<TSnd> attackSnd;
 	bool done = false;
 	SDL_Event event;
 	auto loadSel = [&]() {
@@ -200,6 +226,11 @@ void NdsShowBestiary()
 		spr = std::nullopt;
 		sprDeath = std::nullopt;
 		deathSnd = nullptr;
+		sprAttack = std::nullopt; /* NDS-BESTIARIO4: otro monstruo: de pie y sin prisa */
+		attackSnd = nullptr;
+		dead = false;
+		attacking = false;
+		idleSince = SDL_GetTicks();
 		if (!known(sel)) { /* NDS-BESTIARIODEX: sin matar, sin sprite */
 			hasTrn = false;
 			loadedFor = sel;
@@ -220,8 +251,9 @@ void NdsShowBestiary()
 		dying = false;
 	};
 	auto startDeath = [&]() {
-		if (ids.empty() || !known(sel)) /* NDS-BESTIARIODEX */
+		if (ids.empty() || !known(sel) || dead || dying) /* NDS-BESTIARIODEX + NDS-BESTIARIO4: muerto se queda muerto */
 			return;
+		attacking = false;
 		const MonsterData &md = MonstersData[static_cast<size_t>(ids[static_cast<size_t>(sel)])];
 		if (!sprDeath)
 			sprDeath = LoadOptionalClxListOrSheet(StrCat("monsters\\", md.spritePath(), "d.clx").c_str());
@@ -238,9 +270,9 @@ void NdsShowBestiary()
 
 		SDL_FillSurfaceRect(DiabloUiSurface(), nullptr, 0);
 		const Surface out(DiabloUiSurface());
-		DrawString(out, "BestiarioDex", { { ui.x, ui.y + 12 }, { 640, 44 } }, { .flags = UiFlags::FontSize30 | UiFlags::ColorGold | UiFlags::AlignCenter });
+		DrawString(out, NDS_T("BestiarioDex", "BestiaryDex"), { { ui.x, ui.y + 12 }, { 640, 44 } }, { .flags = UiFlags::FontSize30 | UiFlags::ColorGold | UiFlags::AlignCenter });
 		if (ids.empty()) {
-			DrawString(out, "Aun no has matado ningun monstruo", { { ui.x, ui.y + 200 }, { 640, 40 } }, { .flags = UiFlags::FontSize24 | UiFlags::ColorWhitegold | UiFlags::AlignCenter });
+			DrawString(out, NDS_T("Aun no has matado ningun monstruo", "You have not killed any monster yet"), { { ui.x, ui.y + 200 }, { 640, 40 } }, { .flags = UiFlags::FontSize24 | UiFlags::ColorWhitegold | UiFlags::AlignCenter });
 		} else {
 			for (int r = 0; r < Rows && top + r < static_cast<int>(ids.size()); r++) {
 				const int idx = top + r;
@@ -253,20 +285,41 @@ void NdsShowBestiary()
 			}
 			const MonsterData &md = MonstersData[static_cast<size_t>(ids[static_cast<size_t>(sel)])];
 			/* fotograma: muerte (una vez y se queda 1 s en el ultimo) o quieto en bucle */
-			const OptionalOwnedClxSpriteListOrSheet &anim = dying ? sprDeath : spr;
+			/* NDS-BESTIARIO4: tras 10 s mirandolo, ataca (y otra vez cada 10 s) */
+			if (!dying && !dead && !attacking && known(sel) && SDL_GetTicks() - idleSince >= 10000) {
+				if (!sprAttack)
+					sprAttack = LoadOptionalClxListOrSheet(StrCat("monsters\\", md.spritePath(), "a.clx").c_str());
+				if (!attackSnd)
+					attackSnd = sound_file_load(StrCat("monsters\\", md.soundPath(), "a1.wav").c_str());
+				if (attackSnd)
+					snd_play_snd(attackSnd.get(), 0, 0, *GetOptions().Audio.soundVolume);
+				attacking = sprAttack.has_value();
+				attackStart = SDL_GetTicks();
+				idleSince = attackStart;
+			}
+			const bool showDeath = dying || dead;
+			const OptionalOwnedClxSpriteListOrSheet &anim = showDeath ? sprDeath : (attacking ? sprAttack : spr);
 			if (anim) {
-				const int animIdx = dying ? 4 : 0;
+				const int animIdx = showDeath ? 4 : (attacking ? 2 : 0);
 				const ClxSpriteList list = (*anim).isSheet() ? (*anim).sheet()[0] : (*anim).list();
 				const int nFrames = std::max<int>(1, std::min<int>(md.frames[animIdx] > 0 ? md.frames[animIdx] : 1, static_cast<int>(list.numSprites())));
 				const uint32_t step = static_cast<uint32_t>(std::max<int>(1, md.rate[animIdx]) * 50);
 				int frame;
-				if (dying) {
+				if (showDeath) { /* NDS-BESTIARIO4: la muerte termina en el suelo y ahi se queda */
 					const uint32_t t = SDL_GetTicks() - dieStart;
 					frame = static_cast<int>(t / step);
 					if (frame >= nFrames) {
 						frame = nFrames - 1;
-						if (t > step * static_cast<uint32_t>(nFrames) + 1000)
-							dying = false; /* vuelve a estar quieto */
+						dying = false;
+						dead = true;
+					}
+				} else if (attacking) {
+					const uint32_t t = SDL_GetTicks() - attackStart;
+					frame = static_cast<int>(t / step);
+					if (frame >= nFrames) {
+						frame = nFrames - 1;
+						attacking = false;
+						idleSince = SDL_GetTicks();
 					}
 				} else {
 					frame = static_cast<int>((SDL_GetTicks() / step) % static_cast<uint32_t>(nFrames));
@@ -298,7 +351,7 @@ void NdsShowBestiary()
 			if (!known(sel)) /* NDS-BESTIARIODEX: hueco del sprite */
 				DrawString(out, "???", { { ui.x + 330, ui.y + 210 }, { 310, 44 } }, { .flags = UiFlags::FontSize30 | UiFlags::ColorGold | UiFlags::AlignCenter });
 			DrawString(out, known(sel) ? md.name : std::string("???"), { { ui.x + 330, ui.y + 380 }, { 310, 44 } }, { .flags = UiFlags::FontSize30 | UiFlags::ColorWhitegold | UiFlags::AlignCenter });
-			DrawString(out, StrCat("Matados ", killCount, " / ", static_cast<int>(ids.size())), { { ui.x + 330, ui.y + 426 }, { 310, 30 } }, { .flags = UiFlags::FontSize24 | UiFlags::ColorGold | UiFlags::AlignCenter });
+			DrawString(out, StrCat(NDS_T("Matados ", "Killed "), killCount, " / ", static_cast<int>(ids.size())), { { ui.x + 330, ui.y + 426 }, { 310, 30 } }, { .flags = UiFlags::FontSize24 | UiFlags::ColorGold | UiFlags::AlignCenter });
 		}
 		UiFadeIn();
 
@@ -391,22 +444,27 @@ void MainmenuLoad(const char *name)
 {
 #ifdef __NDS__ /* NDS-MENU */
 	if (NdsMenuMode == 1) {
-		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Cinematicas"), NdsCineMenuValue));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("Cinematicas", "Cinematics")), NdsCineMenuValue));
 		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Soundtrack"), NdsSoundValue)); /* NDS-MENU2 */
-		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("BestiarioDex"), NdsBestiaryValue)); /* NDS-BESTIARIO + NDS-BESTIARIODEX */
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("BestiarioDex", "BestiaryDex")), NdsBestiaryValue)); /* NDS-BESTIARIO + NDS-BESTIARIODEX */
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("Idioma", "Language")), NdsLangValue)); /* NDS-IDIOMA */
 		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Credits"), MAINMENU_SHOW_CREDITS));
-		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Creditos DSI Ver."), NdsCreditsValue));
-		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Volver"), NdsBackValue));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("Creditos DSI Ver.", "DSi Ver. Credits")), NdsCreditsValue));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("Volver", "Back")), NdsBackValue));
 	} else if (NdsMenuMode == 3) { /* NDS-MENU2: Soundtrack */
 		for (int i = 0; i < 6; i++)
-			vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NdsTrackSeen(i) ? NdsTrackNames[i] : "???"), NdsTrackSeen(i) ? NdsTrackBase + i : NdsLockedValue)); /* NDS-MUSICAS */
-		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Volver"), NdsBackValue));
+			vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NdsTrackSeen(i) ? (NdsEs() ? NdsTrackNames[i] : NdsTrackNamesEn[i]) : "???"), NdsTrackSeen(i) ? NdsTrackBase + i : NdsLockedValue)); /* NDS-MUSICAS */
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("Volver", "Back")), NdsBackValue));
+	} else if (NdsMenuMode == 4) { /* NDS-IDIOMA */
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NdsEs() ? "English" : "> English"), NdsLangEn));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NdsEs() ? "> Espa\xC3\xB1ol" : "Espa\xC3\xB1ol"), NdsLangEs));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("Volver", "Back")), NdsBackValue));
 	} else if (NdsMenuMode == 2) {
 		for (int i = 0; i < 4; i++) {
 			const bool seen = NdsCineFirstSeen(i) != nullptr;
-			vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(seen ? NdsCineNames[i] : "???"), seen ? NdsCineBase + i : NdsLockedValue));
+			vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(seen ? (NdsEs() ? NdsCineNames[i] : NdsCineNamesEn[i]) : "???"), seen ? NdsCineBase + i : NdsLockedValue));
 		}
-		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Volver"), NdsBackValue));
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view(NDS_T("Volver", "Back")), NdsBackValue));
 	} else {
 		vecMenuItems.push_back(std::make_unique<UiListItem>(_("Single Player"), MAINMENU_SINGLE_PLAYER));
 		vecMenuItems.push_back(std::make_unique<UiListItem>(_("Multi Player"), MAINMENU_MULTIPLAYER));
@@ -501,6 +559,7 @@ bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, int att
 		while (MainMenuResult == MAINMENU_NONE) {
 #ifdef __NDS__ /* NDS-V12: version arriba solo en el menu principal (no en Extras) */
 			nds_ui_mainmenu(NdsMenuMode == 0 ? 1 : 0);
+			nds_set_lang_es(NdsEs() ? 1 : 0); /* NDS-IDIOMA */
 #endif
 			UiClearScreen();
 			UiPollAndRender();
@@ -537,6 +596,12 @@ bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, int att
 				MainMenuResult = MAINMENU_NONE;
 			} else if (r >= NdsTrackBase && r < NdsTrackBase + 6) {
 				music_start(NdsTracks[r - NdsTrackBase]);
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsLangValue) { /* NDS-IDIOMA */
+				NdsMenuMode = 4;
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsLangEn || r == NdsLangEs) {
+				NdsSetLanguage(r == NdsLangEs ? "es" : "en");
 				MainMenuResult = MAINMENU_NONE;
 			} else if (r == NdsBackValue) {
 				if (NdsMenuMode == 3)

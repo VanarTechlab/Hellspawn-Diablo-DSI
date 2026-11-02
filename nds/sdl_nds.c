@@ -1677,6 +1677,8 @@ static void spl_compose(void)
 #define QL_W 318
 #define QL_Y0 20
 #define QL_H 312
+static int nds_lang_es; /* NDS-IDIOMA: 1 = textos propios en espanol */
+void nds_set_lang_es(int on) { nds_lang_es = on; }
 static void nds_ui_compose(void)
 {
     int x, y;
@@ -1885,6 +1887,35 @@ static int hud_pitch, hud_xp;
 static Uint8 top_buf[LCD_W * LCD_H] __attribute__((aligned(32)));
 static Uint8 flask_tmp[HUD_FL_SW * HUD_FL_SH];
 
+/* NDS-TILDES: UTF-8 -> ASCII para la letra 8x8 (solo tiene ASCII) */
+static void nds_ascii(char *dst, const char *src, size_t n)
+{
+    const unsigned char *p = (const unsigned char *)src;
+    size_t o = 0;
+    while (*p && o + 1 < n) {
+        unsigned char c = *p;
+        if (c < 0x80) { dst[o++] = (char)c; p++; continue; }
+        if (c == 0xC3 && p[1]) {
+            unsigned char d = p[1], r = 0;
+            if (d >= 0xA0) { d -= 0x20; } /* minuscula -> se recuerda abajo */
+            if (d <= 0x85) r = 'A';
+            else if (d == 0x87) r = 'C';
+            else if (d >= 0x88 && d <= 0x8B) r = 'E';
+            else if (d >= 0x8C && d <= 0x8F) r = 'I';
+            else if (d == 0x91) r = 'N';
+            else if (d >= 0x92 && d <= 0x96) r = 'O';
+            else if (d >= 0x99 && d <= 0x9C) r = 'U';
+            if (r && p[1] >= 0xA0) r = (unsigned char)(r + 32);
+            if (r) dst[o++] = (char)r;
+            p += 2;
+            continue;
+        }
+        /* otro caracter multibyte (¿ ¡ etc.): se salta entero */
+        p++;
+        while ((*p & 0xC0) == 0x80) p++;
+    }
+    dst[o] = 0;
+}
 /* NDS-ITEMTXT: descripcion del objeto a tamano real (letra 8x8) en la pantalla de arriba */
 #define ITX_MAXL 21
 static char itx_buf[640];
@@ -1892,8 +1923,7 @@ static int itx_color, itx_on, itx_age, itx_was;
 void nds_item_text(const char *s, int color)
 {
     if (!s || !*s) { itx_on = 0; return; }
-    strncpy(itx_buf, s, sizeof itx_buf - 1);
-    itx_buf[sizeof itx_buf - 1] = 0;
+    nds_ascii(itx_buf, s, sizeof itx_buf); /* NDS-TILDES */
     itx_color = color;
     itx_on = 1;
     itx_age = 0;
@@ -2049,8 +2079,11 @@ static void belt_draw(void) /* NDS-CINTURON */
         for (y = 0; y < BL_S; y++)
             memcpy(comp_buf + (dy + y) * LCD_W + dx, src + y * ui_pitch, BL_S);
     }
-    for (i = 0; "CINTURON"[i]; i++)
-        fnt_char(comp_buf, BL_X - 3 + i * 8, BL_Y - 11, (unsigned char)"CINTURON"[i], (Uint8)col_txt);
+    { /* NDS-IDIOMA */
+        const char *lbl = nds_lang_es ? "CINTURON" : "  BELT";
+        for (i = 0; lbl[i]; i++)
+            fnt_char(comp_buf, BL_X - 3 + i * 8, BL_Y - 11, (unsigned char)lbl[i], (Uint8)col_txt);
+    }
 }
 static void vk_fill(int x, int y, int w, int h, Uint8 c)
 {
@@ -2122,9 +2155,9 @@ void nds_vkbd_input(const char *hint, char *buf, int maxlen)
                 vk_fill(k[i].x, k[i].y, k[i].w, k[i].h, act_on ? cGold : cKey);
                 vk_frame(k[i].x, k[i].y, k[i].w, k[i].h, cEdge);
                 switch (k[i].code) {
-                case 1: lab = "MAYUS"; break;
-                case 2: lab = "ESPACIO"; break;
-                case 3: lab = "BORRAR"; break;
+                case 1: lab = nds_lang_es ? "MAYUS" : "SHIFT"; break; /* NDS-IDIOMA */
+                case 2: lab = nds_lang_es ? "ESPACIO" : "SPACE"; break;
+                case 3: lab = nds_lang_es ? "BORRAR" : "DELETE"; break;
                 case 4: lab = "OK"; break;
                 default:
                     one[0] = (!shift && k[i].code >= 'A' && k[i].code <= 'Z') ? (char)(k[i].code + 32) : k[i].code;
@@ -2196,8 +2229,7 @@ static int lvl_active(void)
 void nds_info_text(const char *s, int color)
 {
     if (!s || !*s) { hinfo_buf[0] = 0; return; }
-    strncpy(hinfo_buf, s, sizeof hinfo_buf - 1);
-    hinfo_buf[sizeof hinfo_buf - 1] = 0;
+    nds_ascii(hinfo_buf, s, sizeof hinfo_buf); /* NDS-TILDES */
     hinfo_color = color;
 }
 static int hud_wrap(const char *p, char lines[][20], int maxl) /* NDS-HUD5e: 18 letras */
@@ -2314,7 +2346,7 @@ static void hud_text6(void)
     int hcol = hinfo_color;
     char lvbuf[24];
     if (lvl_active()) {
-        snprintf(lvbuf, sizeof lvbuf, "NIVEL %d", lvl_num);
+        snprintf(lvbuf, sizeof lvbuf, nds_lang_es ? "NIVEL %d" : "LEVEL %d", lvl_num); /* NDS-IDIOMA */
         htxt = lvbuf;
         hcol = 2;
     }

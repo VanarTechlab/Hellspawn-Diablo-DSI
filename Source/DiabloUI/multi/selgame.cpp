@@ -63,7 +63,30 @@ extern int provider;
 #define NDS_WRAP_FONT GameFont24
 #define NDS_LIST_FONT UiFlags::FontSize30
 #define NDS_LIST_H 33
-#define NDS_TXT(largo, corto) std::string_view(corto)
+std::string_view NdsTxt(std::string_view en) /* NDS-IDIOMA2: version corta en ingles o en espanol */
+{
+	if (GetLanguageCode() != "es")
+		return en;
+	static const char *const T[][2] = {
+		{ "Create Game", "Crear partida" },
+		{ "Nearby Games", "Partidas cercanas" },
+		{ "Create a new game and choose the difficulty.", "Crea una partida nueva y elige la dificultad." },
+		{ "Create a game that nearby consoles can join.", "Crea una partida a la que se pueden unir las consolas cercanas." },
+		{ "Join a game already in progress.", "\xC3\x9Anete a una partida ya empezada." },
+		{ "Normal Difficulty\nFor new characters.", "Dificultad Normal\nPara personajes nuevos." },
+		{ "Nightmare Difficulty\nStronger monsters. For experienced characters.", "Dificultad Pesadilla\nMonstruos m\xC3\xA1s fuertes. Para personajes con experiencia." },
+		{ "Hell Difficulty\nThe strongest monsters. Only for veterans.", "Dificultad Infierno\nLos monstruos m\xC3\xA1s fuertes. Solo para veteranos." },
+		{ "Normal Speed\nThe classic pace.", "Velocidad Normal\nEl ritmo cl\xC3\xA1sico." },
+		{ "Fast Speed\nMonsters move faster.", "Velocidad R\xC3\xA1pida\nLos monstruos se mueven m\xC3\xA1s r\xC3\xA1pido." },
+		{ "Faster Speed\nMonsters hunt you quicker.", "Velocidad Muy R\xC3\xA1pida\nLos monstruos te persiguen antes." },
+		{ "Fastest Speed\nOnly for speed demons.", "Velocidad M\xC3\xA1xima\nSolo para los m\xC3\xA1s r\xC3\xA1pidos." },
+	};
+	for (const auto &t : T)
+		if (en == t[0])
+			return t[1];
+	return en;
+}
+#define NDS_TXT(largo, corto) NdsTxt(corto)
 #else
 #define NDS_DESC_FLAGS (UiFlags::FontSize12 | UiFlags::ColorUiSilverDark)
 #define NDS_DESC_LH 16
@@ -153,7 +176,7 @@ void UiInitGameSelectionList(std::string_view search)
 	vecSelGameDialog.push_back(std::make_unique<UiScrollbar>((*ArtScrollBarBackground)[0], (*ArtScrollBarThumb)[0], *ArtScrollBarArrow, rectScrollbar));
 
 	const SDL_Rect rect1 = { (Sint16)(uiPosition.x + 24), (Sint16)(uiPosition.y + 161), 590, 35 };
-	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_(ConnectionNames[provider]).data(), rect1, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(ConnectionNames[provider] /* NDS-OFFLINE */, rect1, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
 
 	const SDL_Rect rect2 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 211), 205, 192 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Description:").data(), rect2, UiFlags::FontSize24 | UiFlags::ColorUiSilver));
@@ -172,7 +195,7 @@ void UiInitGameSelectionList(std::string_view search)
 
 	if (provider == SELCONN_ZT) {
 		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(std::string_view {}, -1, UiFlags::ElementDisabled));
-		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Public Games"), -1, UiFlags::ElementDisabled | UiFlags::ColorWhitegold));
+		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(NDS_TXT("Public Games", "Nearby Games"), -1, /* NDS-IDIOMA2 */ UiFlags::ElementDisabled | UiFlags::ColorWhitegold));
 
 		if (Gamelist.empty()) {
 			// We expect the game list to be received after 3 seconds
@@ -367,7 +390,7 @@ void selgame_GameSelection_Select(size_t value)
 		break;
 	}
 	case 2: {
-		selgame_Title = FormatRuntime(_("Join {:s} Games"), _(ConnectionNames[provider]));
+		selgame_Title = FormatRuntime(_("Join {:s} Games"), std::string_view(ConnectionNames[provider])); /* NDS-OFFLINE */
 		title = selgame_Title.c_str();
 
 		const char *inputHint;
@@ -586,7 +609,7 @@ void selgame_Password_Init(size_t /*value*/)
 	const Point uiPosition = GetUIRectangle().position;
 
 	const SDL_Rect rect1 = { (Sint16)(uiPosition.x + 24), (Sint16)(uiPosition.y + 161), 590, 35 };
-	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_(ConnectionNames[provider]).data(), rect1, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(ConnectionNames[provider] /* NDS-OFFLINE */, rect1, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
 
 	const SDL_Rect rect2 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 211), 205, 192 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Description:").data(), rect2, UiFlags::FontSize24 | UiFlags::ColorUiSilver));
