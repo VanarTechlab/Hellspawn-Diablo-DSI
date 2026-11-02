@@ -1672,6 +1672,11 @@ static void spl_compose(void)
     }
 }
 
+/* NDS-MISIONES: zona interior del registro de misiones a toda la tactil */
+#define QL_X0 0 /* NDS-MISIONES2: todo el ancho */
+#define QL_W 318
+#define QL_Y0 20
+#define QL_H 312
 static void nds_ui_compose(void)
 {
     int x, y;
@@ -1728,6 +1733,31 @@ static void nds_ui_compose(void)
                 const Uint8 v = NDS_UI_SHARP ? sharp_pick(s + x * 5 / 2, ui_pitch, 2, 2) : s[x * 5 / 2];
                 if (v || !ui_gmenu)
                     d[x] = v;
+            }
+        }
+    } else if (ui_mode == 1 && (ui_wide & 4)) { /* NDS-MISIONES */
+        for (y = 0; y < LCD_H; y++) {
+            const unsigned char *s0 = ui_pix + (QL_Y0 + y * QL_H / LCD_H) * ui_pitch + QL_X0;
+            const unsigned char *s1 = s0 + ui_pitch;
+            Uint8 *d = comp_buf + y * LCD_W;
+            for (x = 0; x < LCD_W; x++) {
+                const int sx = x * QL_W / LCD_W;
+                Uint8 a = s0[sx], b = s0[sx + 1], c = s1[sx], e = s1[sx + 1];
+                if (pal_lum[b] > pal_lum[a]) a = b;
+                if (pal_lum[c] > pal_lum[a]) a = c;
+                if (pal_lum[e] > pal_lum[a]) a = e;
+                d[x] = a;
+            }
+        }
+        { /* NDS-MISIONES2: marco dorado */
+            const Uint8 col = (Uint8)vk_near(24, 18, 6);
+            for (x = 1; x < LCD_W - 1; x++) {
+                comp_buf[1 * LCD_W + x] = col;
+                comp_buf[(LCD_H - 2) * LCD_W + x] = col;
+            }
+            for (y = 1; y < LCD_H - 1; y++) {
+                comp_buf[y * LCD_W + 1] = col;
+                comp_buf[y * LCD_W + LCD_W - 2] = col;
             }
         }
     } else if (ui_mode == 1 || ui_mode == 2) {
@@ -1803,6 +1833,9 @@ static void nds_touch_map(u16 *px, u16 *py)
     if ((ui_mode == 3 && y * 5 / 2 + 2 < 339) || ui_mode == 4) {
         x = UI_X0 + x * 5 / 2;
         y = y * 5 / 2;
+    } else if (ui_mode == 1 && (ui_wide & 4)) { /* NDS-MISIONES */
+        x = UI_X0 + QL_X0 + x * QL_W / LCD_W;
+        y = QL_Y0 + y * QL_H / LCD_H;
     } else if (ui_mode == 1 && (ui_wide & 1)) { /* NDS-PANELANCHO / PERSONAJE2: personaje a toda la tactil */
         x = UI_X0 + x * 320 / LCD_W;
         y = CH_SPLIT + y * (338 - CH_SPLIT) / LCD_H; /* NDS-PERSONAJE7a */

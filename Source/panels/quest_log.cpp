@@ -30,8 +30,14 @@ int FirstFinishedQuest;
 int SelectedQuest;
 
 constexpr Rectangle InnerPanel { { 32, 26 }, { 280, 300 } };
+#ifdef __NDS__ /* NDS-MISIONES: letra grande si caben */
+int LineHeight = 12;
+bool NdsQLBig = false;
+#define MaxSpacing (LineHeight * 2)
+#else
 constexpr int LineHeight = 12;
 constexpr int MaxSpacing = LineHeight * 2;
+#endif
 int ListYOffset;
 int LineSpacing;
 /** The number of pixels to move finished quest, to separate them from the active ones */
@@ -55,15 +61,30 @@ int QuestLogMouseToEntry()
 
 void PrintQLString(const Surface &out, int x, int y, std::string_view str, bool marked, bool disabled = false)
 {
+#ifdef __NDS__ /* NDS-MISIONES */
+	const int width = NdsQLBig ? GetLineWidth(str, GameFont24) : GetLineWidth(str);
+	const int markY = NdsQLBig ? 20 : 13;
+	const UiFlags sizeFlag = NdsQLBig ? UiFlags::FontSize24 : UiFlags::FontSize12;
+#else
 	const int width = GetLineWidth(str);
-	x += std::max((257 - width) / 2, 0);
+	const int markY = 13;
+	const UiFlags sizeFlag = UiFlags::FontSize12;
+#endif
+#ifdef __NDS__ /* NDS-MISIONES2: con letra grande, centrado en todo el ancho del panel */
+	const int areaW = NdsQLBig ? 320 : 257;
+	if (NdsQLBig)
+		x = 0;
+#else
+	const int areaW = 257;
+#endif
+	x += std::max((areaW - width) / 2, 0);
 	if (marked) {
-		ClxDraw(out, GetPanelPosition(UiPanels::Quest, { x - 20, y + 13 }), (*pSPentSpn2Cels)[PentSpn2Spin()]);
+		ClxDraw(out, GetPanelPosition(UiPanels::Quest, { x - 20, y + markY }), (*pSPentSpn2Cels)[PentSpn2Spin()]);
 	}
-	DrawString(out, str, { GetPanelPosition(UiPanels::Quest, { x, y }), { 257, 0 } },
-	    { .flags = disabled ? UiFlags::ColorWhitegold : UiFlags::ColorWhite });
+	DrawString(out, str, { GetPanelPosition(UiPanels::Quest, { x, y }), { areaW, 0 } },
+	    { .flags = sizeFlag | (disabled ? UiFlags::ColorWhitegold : UiFlags::ColorWhite) });
 	if (marked) {
-		ClxDraw(out, GetPanelPosition(UiPanels::Quest, { x + width + 7, y + 13 }), (*pSPentSpn2Cels)[PentSpn2Spin()]);
+		ClxDraw(out, GetPanelPosition(UiPanels::Quest, { x + width + 7, y + markY }), (*pSPentSpn2Cels)[PentSpn2Spin()]);
 	}
 }
 
@@ -76,6 +97,9 @@ void DrawQuestLog(const Surface &out)
 		SelectedQuest = l;
 	}
 	const auto x = InnerPanel.position.x;
+#ifdef __NDS__ /* NDS-MISIONES2: con letra grande, sin el marco de piedra (fondo negro) */
+	if (!NdsQLBig)
+#endif
 	ClxDraw(out, GetPanelPosition(UiPanels::Quest, { 0, 351 }), (*pQLogCel)[0]);
 	int y = InnerPanel.position.y + ListYOffset;
 	for (int i = 0; i < EncounteredQuestCount; i++) {
@@ -113,6 +137,10 @@ void StartQuestlog()
 
 	const bool twoBlocks = FirstFinishedQuest != 0 && FirstFinishedQuest < EncounteredQuestCount;
 
+#ifdef __NDS__ /* NDS-MISIONES: letra 24 si caben todas las misiones */
+	NdsQLBig = EncounteredQuestCount * 26 + 13 <= InnerPanel.size.height;
+	LineHeight = NdsQLBig ? 26 : 12;
+#endif
 	ListYOffset = 0;
 	FinishedQuestOffset = !twoBlocks ? 0 : LineHeight / 2;
 

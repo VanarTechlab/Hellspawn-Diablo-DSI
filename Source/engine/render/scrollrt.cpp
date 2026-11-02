@@ -1422,7 +1422,7 @@ void DrawView(const Surface &out, Point startPosition)
 	nds_ui_dialog(qtextflag ? 1 : 0); /* NDS-DIALOGO */
 	nds_ui_spells(SpellSelectFlag ? 1 : 0); /* NDS-HECHIZOS */
 	nds_ui_gmenu(gmenu_is_active() ? 1 : 0); /* NDS-MENUTRANS */
-	nds_ui_wide(((ndsUiMode == 1 && CharFlag) ? 1 : 0) | ((ndsUiMode == 2 && SpellbookFlag) ? 2 : 0)); /* NDS-PANELANCHO */
+	nds_ui_wide(((ndsUiMode == 1 && CharFlag) ? 1 : 0) | ((ndsUiMode == 2 && SpellbookFlag) ? 2 : 0) | ((ndsUiMode == 1 && QuestLogIsOpen) ? 4 : 0)); /* NDS-PANELANCHO + NDS-MISIONES */
 	nds_ui_friendly(gbIsMultiplayer ? (MyPlayer->friendlyMode ? 1 : 2) : 0); /* NDS-AMISTAD */
 	NdsPouchSync(*MyPlayer); /* NDS-MONEDERO */
 	if (gbIsMultiplayer && nds_take_friendly() != 0)
