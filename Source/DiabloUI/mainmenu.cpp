@@ -27,6 +27,19 @@
 #include "movie.h" /* NDS-MENU */
 #include "engine/sound.h" /* NDS-MENU2: music_start */
 #include "utils/str_cat.hpp"
+#include <algorithm> /* NDS-BESTIARIO */
+#include <cstring>
+#include "options.h"
+#include <array>
+#include <cstdio>
+#include <string>
+#include "engine/load_file.hpp"
+#include "engine/palette.h"
+#include "engine/render/clx_render.hpp"
+#include "engine/render/text_render.hpp"
+#include "engine/surface.hpp"
+#include "tables/monstdat.h"
+#include "utils/sdl_compat.h"
 #endif
 
 namespace devilution {
@@ -116,6 +129,221 @@ bool NdsTrackSeen(int i) /* NDS-MUSICAS: solo las que el jugador ya ha escuchado
 	n[3] = static_cast<char>('0' + static_cast<int>(NdsTracks[i]));
 	return nds_cine_seen(n) != 0;
 }
+constexpr int NdsBestiaryValue = 105; /* NDS-BESTIARIO + NDS-BESTIARIO3 */
+void NdsShowBestiary()
+{
+	/* monstruos matados: lineas "bN" de saves/cinematicas.txt (el directorio actual es devilutionx) */
+	std::vector<bool> killed(MonstersData.size(), false);
+	if (FILE *f = std::fopen("saves/cinematicas.txt", "r")) {
+		char line[48];
+		while (std::fgets(line, sizeof line, f) != nullptr) {
+			int id = -1;
+			if (line[0] == 'b' && std::sscanf(line + 1, "%d", &id) == 1 && id >= 0 && static_cast<size_t>(id) < killed.size())
+				killed[static_cast<size_t>(id)] = true;
+		}
+		std::fclose(f);
+	}
+	/* NDS-BESTIARIODEX: todos los monstruos que existen en este juego */
+	std::vector<bool> usedByUnique(MonstersData.size(), false);
+	for (const UniqueMonsterData &u : UniqueMonstersData)
+		if (u.mtype >= 0 && static_cast<size_t>(u.mtype) < usedByUnique.size())
+			usedByUnique[static_cast<size_t>(u.mtype)] = true;
+	std::vector<int> ids;
+	int killCount = 0;
+	for (size_t i = 0; i < MonstersData.size(); i++) {
+		const MonsterData &md = MonstersData[i];
+		if (md.name.empty() || static_cast<int>(i) == MT_GOLEM)
+			continue;
+		if (!gbIsHellfire && static_cast<int>(i) > MT_DIABLO)
+			continue;
+		if (static_cast<int>(i) != MT_DIABLO && !usedByUnique[i]) {
+			if (md.availability == MonsterAvailability::Never)
+				continue;
+			if (gbIsSpawn && md.availability == MonsterAvailability::Retail)
+				continue;
+		}
+		ids.push_back(static_cast<int>(i));
+		if (killed[i])
+			killCount++;
+	}
+	auto known = [&](int idx) { return killed[static_cast<size_t>(ids[static_cast<size_t>(idx)])]; };
+
+	/* paleta de la catedral (l1_1.pal) o, si no esta, la del pueblo (NDS-BESTIARIO2) */
+	ArtBackground = std::nullopt;
+	ArtBackgroundWidescreen = std::nullopt;
+	{
+		std::array<uint8_t, 768> pal {};
+		if (!LoadFileInMemWithStatus("levels\\l1data\\l1_1.pal", pal.data(), pal.size()).has_value())
+			(void)LoadFileInMemWithStatus("levels\\towndata\\town.pal", pal.data(), pal.size());
+		for (size_t i = 0; i < 256; i++) {
+			logical_palette[i].r = pal[i * 3];
+			logical_palette[i].g = pal[i * 3 + 1];
+			logical_palette[i].b = pal[i * 3 + 2];
+		}
+	}
+	UpdateSystemPalette(logical_palette);
+
+	const Point ui = GetUIRectangle().position;
+	constexpr int ListX = 20, ListY = 66, RowH = 40, Rows = 8;
+	constexpr int SprCx = 485, SprBottom = 372; /* centro y pie del sprite ampliado */
+	int sel = 0, top = 0, loadedFor = -1;
+	OptionalOwnedClxSpriteListOrSheet spr, sprDeath;
+	std::array<uint8_t, 256> trn {};
+	bool hasTrn = false;
+	std::unique_ptr<TSnd> deathSnd;
+	bool dying = false;
+	uint32_t dieStart = 0;
+	bool done = false;
+	SDL_Event event;
+	auto loadSel = [&]() {
+		const MonsterData &md = MonstersData[static_cast<size_t>(ids[static_cast<size_t>(sel)])];
+		spr = std::nullopt;
+		sprDeath = std::nullopt;
+		deathSnd = nullptr;
+		if (!known(sel)) { /* NDS-BESTIARIODEX: sin matar, sin sprite */
+			hasTrn = false;
+			loadedFor = sel;
+			dying = false;
+			return;
+		}
+		spr = LoadOptionalClxListOrSheet(StrCat("monsters\\", md.spritePath(), "n.clx").c_str());
+		hasTrn = false;
+		if (!md.trnFile.empty()) {
+			if (LoadFileInMemWithStatus(StrCat("monsters\\", md.trnFile, ".trn").c_str(), trn.data(), trn.size()).has_value()) {
+				for (uint8_t &c : trn)
+					if (c == 255)
+						c = 0;
+				hasTrn = true;
+			}
+		}
+		loadedFor = sel;
+		dying = false;
+	};
+	auto startDeath = [&]() {
+		if (ids.empty() || !known(sel)) /* NDS-BESTIARIODEX */
+			return;
+		const MonsterData &md = MonstersData[static_cast<size_t>(ids[static_cast<size_t>(sel)])];
+		if (!sprDeath)
+			sprDeath = LoadOptionalClxListOrSheet(StrCat("monsters\\", md.spritePath(), "d.clx").c_str());
+		if (!deathSnd)
+			deathSnd = sound_file_load(StrCat("monsters\\", md.soundPath(), "d1.wav").c_str());
+		if (deathSnd)
+			snd_play_snd(deathSnd.get(), 0, 0, *GetOptions().Audio.soundVolume);
+		dying = sprDeath.has_value();
+		dieStart = SDL_GetTicks();
+	};
+	while (!done) {
+		if (!ids.empty() && loadedFor != sel)
+			loadSel();
+
+		SDL_FillSurfaceRect(DiabloUiSurface(), nullptr, 0);
+		const Surface out(DiabloUiSurface());
+		DrawString(out, "BestiarioDex", { { ui.x, ui.y + 12 }, { 640, 44 } }, { .flags = UiFlags::FontSize30 | UiFlags::ColorGold | UiFlags::AlignCenter });
+		if (ids.empty()) {
+			DrawString(out, "Aun no has matado ningun monstruo", { { ui.x, ui.y + 200 }, { 640, 40 } }, { .flags = UiFlags::FontSize24 | UiFlags::ColorWhitegold | UiFlags::AlignCenter });
+		} else {
+			for (int r = 0; r < Rows && top + r < static_cast<int>(ids.size()); r++) {
+				const int idx = top + r;
+				const MonsterData &mr = MonstersData[static_cast<size_t>(ids[static_cast<size_t>(idx)])];
+				char num[8]; /* NDS-BESTIARIODEX: numero de 3 cifras y ??? si no lo has matado */
+				std::snprintf(num, sizeof num, "%03d ", idx + 1);
+				const std::string txt = StrCat(idx == sel ? "> " : "", num, known(idx) ? mr.name : std::string("???"));
+				DrawString(out, txt, { { ui.x + ListX, ui.y + ListY + r * RowH }, { 320, RowH } },
+				    { .flags = UiFlags::FontSize30 | (idx == sel ? UiFlags::ColorWhitegold : UiFlags::ColorGold) });
+			}
+			const MonsterData &md = MonstersData[static_cast<size_t>(ids[static_cast<size_t>(sel)])];
+			/* fotograma: muerte (una vez y se queda 1 s en el ultimo) o quieto en bucle */
+			const OptionalOwnedClxSpriteListOrSheet &anim = dying ? sprDeath : spr;
+			if (anim) {
+				const int animIdx = dying ? 4 : 0;
+				const ClxSpriteList list = (*anim).isSheet() ? (*anim).sheet()[0] : (*anim).list();
+				const int nFrames = std::max<int>(1, std::min<int>(md.frames[animIdx] > 0 ? md.frames[animIdx] : 1, static_cast<int>(list.numSprites())));
+				const uint32_t step = static_cast<uint32_t>(std::max<int>(1, md.rate[animIdx]) * 50);
+				int frame;
+				if (dying) {
+					const uint32_t t = SDL_GetTicks() - dieStart;
+					frame = static_cast<int>(t / step);
+					if (frame >= nFrames) {
+						frame = nFrames - 1;
+						if (t > step * static_cast<uint32_t>(nFrames) + 1000)
+							dying = false; /* vuelve a estar quieto */
+					}
+				} else {
+					frame = static_cast<int>((SDL_GetTicks() / step) % static_cast<uint32_t>(nFrames));
+				}
+				const ClxSprite s = list[static_cast<size_t>(frame)];
+				/* dibujar a 1:1 en la zona oculta (x 0-255, filas 0-255) y copiar ampliado 1,5x */
+				const int sw = std::min<int>(s.width(), 256), sh = std::min<int>(s.height(), 256);
+				for (int y = 0; y < 256; y++)
+					std::memset(out.at(0, y), 0, 256);
+				const Surface scratch = out.subregion(0, 0, 256, 256);
+				if (hasTrn)
+					ClxDrawTRN(scratch, { 0, 255 }, s, trn.data());
+				else
+					ClxDraw(scratch, { 0, 255 }, s);
+				const int dw = sw * 3 / 2, dh = sh * 3 / 2;
+				const int dx0 = ui.x + SprCx - dw / 2, dy0 = ui.y + SprBottom - dh;
+				for (int y = 0; y < dh; y++) {
+					const uint8_t *src = out.at(0, 256 - sh + y * 2 / 3);
+					uint8_t *dst = out.at(dx0, dy0 + y);
+					for (int x = 0; x < dw; x++) {
+						const uint8_t v = src[x * 2 / 3];
+						if (v != 0)
+							dst[x] = v;
+					}
+				}
+				for (int y = 0; y < 256; y++) /* limpiar la zona oculta */
+					std::memset(out.at(0, y), 0, 256);
+			}
+			if (!known(sel)) /* NDS-BESTIARIODEX: hueco del sprite */
+				DrawString(out, "???", { { ui.x + 330, ui.y + 210 }, { 310, 44 } }, { .flags = UiFlags::FontSize30 | UiFlags::ColorGold | UiFlags::AlignCenter });
+			DrawString(out, known(sel) ? md.name : std::string("???"), { { ui.x + 330, ui.y + 380 }, { 310, 44 } }, { .flags = UiFlags::FontSize30 | UiFlags::ColorWhitegold | UiFlags::AlignCenter });
+			DrawString(out, StrCat("Matados ", killCount, " / ", static_cast<int>(ids.size())), { { ui.x + 330, ui.y + 426 }, { 310, 30 } }, { .flags = UiFlags::FontSize24 | UiFlags::ColorGold | UiFlags::AlignCenter });
+		}
+		UiFadeIn();
+
+		while (PollEvent(&event)) {
+			for (const MenuAction a : GetMenuActions(event)) {
+				if (a == MenuAction_BACK)
+					done = true;
+				else if (a == MenuAction_SELECT)
+					startDeath();
+				else if (a == MenuAction_UP && sel > 0)
+					sel--;
+				else if (a == MenuAction_DOWN && sel + 1 < static_cast<int>(ids.size()))
+					sel++;
+				else if (a == MenuAction_PAGE_UP)
+					sel = std::max(0, sel - Rows);
+				else if (a == MenuAction_PAGE_DOWN && !ids.empty())
+					sel = std::min(static_cast<int>(ids.size()) - 1, sel + Rows);
+			}
+			if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+				const int mx = event.button.x - ui.x, my = event.button.y - ui.y;
+				if (mx >= ListX && mx < ListX + 320 && my >= ListY && my < ListY + Rows * RowH) {
+					const int idx = top + (my - ListY) / RowH;
+					if (idx < static_cast<int>(ids.size())) {
+						sel = idx;
+						if (loadedFor != sel)
+							loadSel();
+						startDeath(); /* tocar un nombre: se muere */
+					}
+				} else if (mx >= 330 && my >= 120 && my < 380 && !ids.empty()) {
+					startDeath(); /* tocar el sprite */
+				} else if (my > ListY + Rows * RowH || ids.empty()) {
+					done = true; /* tocar abajo a la izquierda (o sin monstruos): volver */
+				}
+			}
+			UiHandleEvents(&event);
+		}
+		if (sel < top)
+			top = sel;
+		if (sel >= top + Rows)
+			top = sel - Rows + 1;
+	}
+	spr = std::nullopt;
+	sprDeath = std::nullopt;
+	deathSnd = nullptr;
+}
 const char *const NdsCineFiles[4][3] = { { "diablo1", nullptr, nullptr }, { "fprst3", nullptr, nullptr }, { "diabvic1", "diabvic2", "diabvic3" }, { "diabend", nullptr, nullptr } };
 const char *NdsCineFirstSeen(int i)
 {
@@ -165,6 +393,7 @@ void MainmenuLoad(const char *name)
 	if (NdsMenuMode == 1) {
 		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Cinematicas"), NdsCineMenuValue));
 		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Soundtrack"), NdsSoundValue)); /* NDS-MENU2 */
+		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("BestiarioDex"), NdsBestiaryValue)); /* NDS-BESTIARIO + NDS-BESTIARIODEX */
 		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Credits"), MAINMENU_SHOW_CREDITS));
 		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Creditos DSI Ver."), NdsCreditsValue));
 		vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Volver"), NdsBackValue));
@@ -299,6 +528,9 @@ bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, int att
 				MainMenuResult = MAINMENU_NONE;
 			} else if (r == NdsCineMenuValue) {
 				NdsMenuMode = 2;
+				MainMenuResult = MAINMENU_NONE;
+			} else if (r == NdsBestiaryValue) { /* NDS-BESTIARIO */
+				NdsShowBestiary();
 				MainMenuResult = MAINMENU_NONE;
 			} else if (r == NdsSoundValue) { /* NDS-MENU2 */
 				NdsMenuMode = 3;

@@ -4,6 +4,7 @@
  * Implementation of monster functionality, AI, actions, spawning, loading, etc.
  */
 #include "monster.h"
+#include <cstdio> /* NDS-BESTIARIO */
 
 #include <algorithm>
 #include <array>
@@ -4054,9 +4055,10 @@ void M_StartHit(Monster &monster, const Player &player, int dam)
 
 void MonsterDeath(Monster &monster, Direction md, bool sendmsg)
 {
-	if (!monster.isPlayerMinion())
+	if (!monster.isPlayerMinion()) {
 		{ extern Point NdsKillPos; NdsKillPos = monster.position.tile; } /* NDS-XPCOMPARTIDA */
 		AddPlrMonstExper(monster.level(sgGameInitInfo.nDifficulty), monster.exp(sgGameInitInfo.nDifficulty), monster.whoHit);
+	} /* NDS-BESTIARIO: llaves (sin ellas la experiencia se daba tambien por esbirros propios) */
 
 	MonsterKillCounts[monster.type().type]++;
 	monster.hitPoints = Fixed26_6::fromInt(0);
@@ -4092,8 +4094,18 @@ void MonsterDeath(Monster &monster, Direction md, bool sendmsg)
 		AddMissile(monster.position.tile, { 0, 0 }, Direction::South, MissileID::AcidPuddle, TARGET_PLAYERS, monster, monster.intelligence + 1, 0);
 }
 
+#ifdef __NDS__
+extern "C" void nds_extra_mark(const char *name); /* NDS-BESTIARIO */
+#endif
 void StartMonsterDeath(Monster &monster, const Player &player, bool sendmsg)
 {
+#ifdef __NDS__ /* NDS-BESTIARIO: apuntar el tipo de monstruo que ha matado este jugador */
+	if (&player == MyPlayer && !monster.isPlayerMinion()) {
+		char ndsN[12];
+		std::snprintf(ndsN, sizeof ndsN, "b%d", static_cast<int>(monster.type().type));
+		nds_extra_mark(ndsN);
+	}
+#endif
 	monster.tag(player);
 	const Direction md = GetDirection(monster.position.tile, player.position.tile);
 	MonsterDeath(monster, md, sendmsg);
