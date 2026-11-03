@@ -70,6 +70,8 @@
 
 namespace devilution {
 
+extern bool NdsNoLight; /* NDS-SINLUZMISIL */
+
 std::list<Missile> Missiles;
 bool MissilePreFlag;
 
@@ -2842,7 +2844,9 @@ Missile *AddMissile(WorldTilePosition src, WorldTilePosition dst, Direction midi
 	}
 
 	AddMissileParameter parameter = { dst, midir, parent, false };
+	NdsNoLight = true; /* NDS-SINLUZMISIL */
 	missileData.addFn(missile, parameter);
+	NdsNoLight = false;
 	if (parameter.spellFizzled) {
 		return nullptr;
 	}
@@ -4219,8 +4223,11 @@ void ProcessMissiles()
 
 	for (auto &missile : Missiles) {
 		const MissileData &missileData = GetMissileData(missile._mitype);
-		if (missileData.processFn != nullptr)
+		if (missileData.processFn != nullptr) {
+			NdsNoLight = true; /* NDS-SINLUZMISIL */
 			missileData.processFn(missile);
+			NdsNoLight = false;
+		}
 		if (missile._miAnimFlags == MissileGraphicsFlags::NotAnimated)
 			continue;
 

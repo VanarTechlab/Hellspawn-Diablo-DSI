@@ -2130,7 +2130,7 @@ void DrawAndBlit()
 			ndsMapN = 0;
 			ndsMapDue = true;
 		}
-		const bool ndsStore = IsPlayerInStore() && !qtextflag && NdsStoreTextFullSize(); /* NDS-TIENDA */
+		const bool ndsStore = false; /* NDS-TIENDATXT: ya no se muestra el detalle con letra grande arriba (queda el minimapa) */
 		if (ndsStore || ndsMapDue) { /* NDS-HUD3: minimapa en la zona libre de la superficie de interfaz (0,0)-(255,95) */
 			const Surface mapOut = pan.subregion(0, 0, 256, 111); /* NDS-HUD6d: minimapa 256x111 */
 			for (int y = 0; y < 111; y++)

@@ -251,8 +251,12 @@ void InitLighting()
 	TransList = {};
 }
 
+bool NdsNoLight = false; /* NDS-SINLUZMISIL: true mientras se crean/mueven proyectiles */
+
 int AddLight(Point position, uint8_t radius)
 {
+	if (NdsNoLight) /* NDS-SINLUZMISIL */
+		return NO_LIGHT;
 #ifdef _DEBUG
 	if (DisableLighting)
 		return NO_LIGHT;

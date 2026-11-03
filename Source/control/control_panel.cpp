@@ -855,7 +855,19 @@ void DrawDeathText(const Surface &out)
 	} else {
 		text = FormatRuntime(_("Press {} to restart in town."), buttonText);
 	}
+#ifdef __NDS__ /* NDS-MUERTE: partir por palabras para que no se corte en la pantalla pequena */
+	{
+		const TextRenderOptions ndsOpts {
+			.flags = UiFlags::FontSize24 | UiFlags::ColorGold | UiFlags::AlignCenter,
+			.spacing = 2
+		};
+		const int ndsY = linePosition.y; /* NDS-MUERTE2: 12 px mas abajo */
+		const std::string ndsText = WordWrapString(text, static_cast<unsigned>(out.w() - 16), GameFont24, 2);
+		DrawString(out, ndsText, Rectangle { Point { 8, ndsY }, Size { out.w() - 16, out.h() - ndsY } }, ndsOpts);
+	}
+#else
 	DrawString(out, text, linePosition, smallTextOptions);
+#endif
 }
 
 void SetPanelObjectPosition(UiPanels panel, Rectangle &button)

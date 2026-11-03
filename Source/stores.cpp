@@ -2472,6 +2472,36 @@ void StartStore(TalkID s)
 	ActiveStore = s;
 }
 
+#ifdef __NDS__ /* NDS-TIENDATXT: las lineas de la tienda se pasan a la capa DSi (letra 8x8) */
+extern "C" void nds_store_begin(int cur, int full, int scroll);
+extern "C" void nds_store_line(int line, const char *text, int color, int align, int indent, int price, int selectable, int divider);
+extern "C" void nds_store_gold(const char *text);
+extern "C" void nds_store_end(void);
+static void NdsStoreExport()
+{
+	nds_store_begin(CurrentTextLine, IsTextFullSize ? 1 : 0, HasScrollbar ? 1 : 0);
+	for (int i = 0; i < NumStoreLines && i < 24; i++) {
+		const STextStruct &l = TextLine[i];
+		if (!l.isDivider() && !l.hasText())
+			continue;
+		int color = 0;
+		if (HasAnyOf(l.flags, UiFlags::ColorBlue))
+			color = 1;
+		else if (HasAnyOf(l.flags, UiFlags::ColorRed))
+			color = 2;
+		else if (HasAnyOf(l.flags, UiFlags::ColorWhitegold | UiFlags::ColorGold))
+			color = 3;
+		const int align = HasAnyOf(l.flags, UiFlags::AlignCenter) ? 1 : (HasAnyOf(l.flags, UiFlags::AlignRight) ? 2 : 0);
+		nds_store_line(i, l.text.c_str(), color, align, l._sx, l._sval, l.isSelectable() ? 1 : 0, l.isDivider() ? 1 : 0);
+	}
+	if (RenderGold) {
+		const std::string g = FormatRuntime(_("Your gold: {:s}"), FormatInteger(TotalPlayerGold()));
+		nds_store_gold(g.c_str());
+	}
+	nds_store_end();
+}
+#endif
+
 void DrawSText(const Surface &out)
 {
 	if (!IsTextFullSize)
@@ -2520,6 +2550,9 @@ void DrawSText(const Surface &out)
 
 	if (HasScrollbar)
 		DrawSSlider(out, 4, 20);
+#ifdef __NDS__ /* NDS-TIENDATXT */
+	NdsStoreExport();
+#endif
 }
 
 void StoreESC()
