@@ -408,6 +408,10 @@ int ItemsGetCurrlevel()
 			return Quests[Q_PWATER]._qlevel;
 		case SL_VILEBETRAYER:
 			return Quests[Q_BETRAYER]._qlevel;
+		case SL_BUTCHERLAIR: /* NDS-GUARIDA */
+			return Quests[Q_BUTCHER]._qlevel;
+		case SL_BOSQUE: /* NDS-BOSQUE */
+			return 5;
 		default:
 			return 1;
 		}

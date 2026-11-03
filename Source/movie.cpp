@@ -5,6 +5,7 @@
  */
 
 #include <cstdint>
+#include <cstring> /* NDS-GUARIDA10 */
 
 #ifdef USE_SDL3
 #include <SDL3/SDL_events.h>
@@ -68,6 +69,7 @@ void play_movie(const char *pszMovie, bool userCanClose)
 		SetHardwareCursorVisible(false);
 	}
 
+	const bool ndsNoSkip = std::strstr(pszMovie, "carnicero") != nullptr; /* NDS-GUARIDA10: la escena del Carnicero no se salta */
 	if (SVidPlayBegin(pszMovie, loop_movie ? 0x100C0808 : 0x10280808)) {
 		SDL_Event event;
 		uint16_t modState;
@@ -84,7 +86,7 @@ void play_movie(const char *pszMovie, bool userCanClose)
 				switch (event.type) {
 				case SDL_EVENT_KEY_DOWN:
 				case SDL_EVENT_MOUSE_BUTTON_UP:
-					if (userCanClose || (event.type == SDL_EVENT_KEY_DOWN && SDLC_EventKey(event) == SDLK_ESCAPE))
+					if (userCanClose || (event.type == SDL_EVENT_KEY_DOWN && SDLC_EventKey(event) == SDLK_ESCAPE && !ndsNoSkip))
 						movie_playing = false;
 					break;
 #ifdef USE_SDL3

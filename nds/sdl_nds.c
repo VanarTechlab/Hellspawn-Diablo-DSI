@@ -3182,7 +3182,7 @@ const char *nds_prof_line(int n)
 /* NDS-ARRIBA: imagen propia en la pantalla de arriba durante los menus */
 static int nds_top_img_on, nds_top_img_tried;
 /* NDS-V12: texto de version sobre la imagen de arriba (solo menu principal) */
-#define NDS_VER_TXT "V1.5"
+#define NDS_VER_TXT "V1.5.4"
 #define VER_W (4 * 8 + 2)
 #define VER_H 10
 #define VER_X (LCD_W - VER_W - 3)

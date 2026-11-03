@@ -69,7 +69,7 @@ namespace {
 
 std::unique_ptr<uint16_t[]> LoadMinData(size_t &tileCount)
 {
-	switch (leveltype) {
+	switch (NdsGfxType()) { /* NDS-BOSQUE */
 	case DTYPE_TOWN: {
 		auto min = LoadFileInMemWithStatus<uint16_t>("nlevels\\towndata\\town.min", &tileCount);
 		if (!min.has_value()) {
@@ -99,7 +99,7 @@ std::unique_ptr<uint16_t[]> LoadMinData(size_t &tileCount)
 
 std::expected<void, std::string> LoadLevelSOLData()
 {
-	switch (leveltype) {
+	switch (NdsGfxType()) { /* NDS-BOSQUE */
 	case DTYPE_TOWN:
 		if (!LoadIntegralFileInMemWithStatus("nlevels\\towndata\\town.sol", SOLData).has_value()) {
 			RETURN_IF_ERROR(LoadIntegralFileInMemWithStatus("levels\\towndata\\town.sol", SOLData));
@@ -169,7 +169,7 @@ void SetDungeonMicros(std::unique_ptr<std::byte[]> &dungeonCels, uint_fast8_t &m
 	microTileLen = 10;
 	size_t blocks = 10;
 
-	if (leveltype == DTYPE_TOWN) {
+	if (NdsGfxType() == DTYPE_TOWN) { /* NDS-BOSQUE */
 		microTileLen = 16;
 		blocks = 16;
 	} else if (leveltype == DTYPE_HELL) {

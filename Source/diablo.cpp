@@ -134,6 +134,8 @@
 
 namespace devilution {
 
+void NdsBosqueAlCargar(const Player &myPlayer); /* NDS-SUCUBOS (quests.cpp) */
+
 Point MousePosition;
 bool gbRunGameResult;
 bool ReturnToMainMenu;
@@ -1385,7 +1387,7 @@ std::expected<void, std::string> LoadLvlGFX()
 		return {};
 	};
 
-	switch (leveltype) {
+	switch (NdsGfxType()) { /* NDS-BOSQUE */
 	case DTYPE_TOWN: {
 		auto cel = LoadFileInMemWithStatus("nlevels\\towndata\\town.cel");
 		if (!cel.has_value()) {
@@ -1545,7 +1547,9 @@ void GameLogic()
 		return;
 	}
 #ifdef __NDS__ /* NDS-ATAJO: L+R 2 s = siguiente nivel (pruebas) */
-	if (nds_take_warp() && !gbIsMultiplayer && !setlevel && currlevel < 16) {
+	const int ndsWarp = nds_take_warp();
+	/* NDS-GUARIDA9: quitado el atajo de prueba a la guarida (NDS-PRUEBAGUARIDA) */
+	if (ndsWarp && !gbIsMultiplayer && !setlevel && currlevel < 16) {
 		StartNewLvl(*MyPlayer, interface_mode::WM_DIABNEXTLVL, currlevel + 1);
 		return;
 	}
@@ -3349,6 +3353,10 @@ std::expected<void, std::string> LoadGameLevelSetLevel(bool firstflag, lvl_entry
 
 	PlayDungMsgs();
 	InitMissiles();
+	if (setlvlnum == SL_BOSQUE && !gbIsMultiplayer) /* NDS-SUCUBOS: luz roja */
+		NdsBosqueAlCargar(myPlayer);
+	if (setlvlnum == SL_BUTCHERLAIR) /* NDS-GUARIDA: portal rojo de vuelta */
+		AddMissile({ 21, 32 }, { 21, 32 }, Direction::South, MissileID::RedPortal, TARGET_MONSTERS, myPlayer, 0, 0);
 	IncProgress();
 	return {};
 }

@@ -4,6 +4,9 @@
 #include "engine/render/primitive_render.hpp"
 #include "inv.h"
 #include "levels/trigs.h"
+#include "levels/dun_tile_data.hpp" /* NDS-BOSQUE6 */
+#include "game_mode.hpp"
+#include "player.h"
 #include "options.h"
 #include "panels/partypanel.hpp"
 #include "qol/stash.h"
@@ -19,6 +22,8 @@
 #include "utils/str_split.hpp"
 
 namespace devilution {
+
+const char *NdsHudAvisoTexto(); /* NDS-SUCUBOS (quests.cpp) */
 
 StringOrView InfoString;
 StringOrView FloatingInfoString;
@@ -479,6 +484,17 @@ void DrawInfoBox(const Surface &out)
 			if (!ndsP.isMaxCharacterLevel())
 				ndsText += StrCat("/", FormatInteger(ndsP.getNextExperienceThreshold()));
 			ndsColor = 2;
+		}
+		if (ndsText.empty() && NdsHudAvisoTexto() != nullptr) { /* NDS-SUCUBOS: avisos de la mision */
+			ndsText = NdsHudAvisoTexto();
+			ndsColor = 2;
+		}
+		if (ndsText.empty() && !gbIsMultiplayer && !setlevel && leveltype == DTYPE_TOWN) { /* NDS-BOSQUE6: cerca de la entrada al bosque */
+			const Point ndsP = MyPlayer->position.tile;
+			if (ndsP.x <= 14 && ndsP.y >= 47 && ndsP.y <= 57) {
+				ndsText = MyPlayer->getCharacterLevel() >= 15 ? _("Entrance to the Forest") : _("Entrance to the Forest (level 15)"); /* NDS-SUCUBOS */
+				ndsColor = 2;
+			}
 		}
 		nds_info_text(ndsText.empty() ? nullptr : ndsText.c_str(), ndsColor);
 	}

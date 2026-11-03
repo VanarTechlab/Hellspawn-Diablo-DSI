@@ -203,6 +203,11 @@ void DrlgTPass3()
 	FillSector("levels\\towndata\\sector2s.dun", 46, 0);
 	FillSector("levels\\towndata\\sector3s.dun", 0, 46);
 	FillSector("levels\\towndata\\sector4s.dun", 0, 0);
+	if (!gbIsMultiplayer) { /* NDS-BOSQUE4 + NDS-BOSQUE5: puente al bosque; el rio baja una fila hasta el puente viejo */
+		static const uint16_t cambios[][3] = { { 7, 24, 84 }, { 8, 24, 58 }, { 7, 25, 77 }, { 8, 25, 79 }, { 7, 26, 76 }, { 8, 26, 78 }, { 9, 26, 63 }, { 8, 27, 77 }, { 9, 27, 79 }, { 8, 28, 76 }, { 9, 28, 78 }, { 10, 28, 63 }, { 9, 29, 77 }, { 10, 29, 79 }, { 9, 30, 76 }, { 10, 30, 78 }, { 11, 30, 63 }, { 10, 31, 77 }, { 11, 31, 79 }, { 10, 32, 76 }, { 11, 32, 78 }, { 12, 32, 63 }, { 11, 33, 77 }, { 12, 33, 79 }, { 11, 34, 318 }, { 12, 34, 78 } };
+		for (const auto &c : cambios)
+			FillTile(2 * c[0], 2 * c[1], c[2]);
+	}
 
 	auto dunData = LoadFileInMem<uint16_t>("levels\\towndata\\automap.dun");
 	PlaceDunTiles(dunData.get(), { 0, 0 });
