@@ -98,6 +98,8 @@
 
 namespace devilution {
 
+bool NdsTownerTieneMision(int ttype); /* NDS-LUCES (quests.cpp) */
+
 enum OutlineColors : uint8_t {
 	OutlineColorsPlayer1 = (PAL16_ORANGE + 7),
 	OutlineColorsPlayer2 = (PAL16_YELLOW + 7),
@@ -789,6 +791,10 @@ void DrawMonsterHelper(const Surface &out, Point tilePosition, Point targetBuffe
 			ClxDrawOutlineSkipColorZero(out, OutlineColorsTowner, position, sprite);
 		}
 		ClxDraw(out, position, sprite);
+		if (NdsTownerTieneMision(static_cast<int>(towner._ttype))) { /* NDS-LUCES: "!" de mision */
+			DrawString(out, "!", Rectangle { Point { position.x, position.y - sprite.height() - 6 }, Size { sprite.width(), 26 } },
+			    { .flags = UiFlags::AlignCenter | UiFlags::ColorGold | UiFlags::FontSize24 });
+		}
 		return;
 	}
 

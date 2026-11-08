@@ -44,6 +44,7 @@
 namespace devilution {
 
 int NdsSucubosEstado(); /* NDS-SUCUBOS (quests.cpp) */
+void NdsSucubosGuardar(int e); /* NDS-LUCES (quests.cpp) */
 
 TalkID ActiveStore;
 
@@ -1206,14 +1207,16 @@ void StartStorytellerIdentifyShow(Item &item)
 
 const char *NdsSucTalkId(bool consumir) /* NDS-SUCUBOS3: frase de "Luces del Bosque" de este NPC (o nada) */
 {
-	if (gbIsMultiplayer || MyPlayer == nullptr || MyPlayer->getCharacterLevel() < 15 || NdsSucubosEstado() >= 2)
+	if (gbIsMultiplayer || MyPlayer == nullptr || MyPlayer->getCharacterLevel() < 18 || NdsSucubosEstado() == 2) /* NDS-LUCES: nivel 18 */
 		return nullptr;
-	static bool gillianYa = false;
+	const int ndsE = NdsSucubosEstado();
+	if (ndsE == 0 && TownerId != TOWN_BMAID) /* NDS-LUCES: la mision la empieza Gillian */
+		return nullptr;
 	switch (TownerId) {
 	case TOWN_BMAID: {
-		const char *id = gillianYa ? "NDS_SUCC_GILLIAN22" : "NDS_SUCC_GILLIAN21";
-		if (consumir)
-			gillianYa = true;
+		const char *id = ndsE == 0 ? "NDS_SUCC_GILLIAN21" : "NDS_SUCC_GILLIAN22";
+		if (consumir && ndsE == 0)
+			NdsSucubosGuardar(3); /* NDS-LUCES: mision aceptada */
 		return id;
 	}
 	case TOWN_HEALER: return "NDS_SUCC_PEPIN4";
@@ -2001,7 +2004,7 @@ void StorytellerIdentifyEnter()
 
 void NdsSucubosGossip(_speech_id &s) /* NDS-SUCUBOS: dialogos recuperados de la mision */
 {
-	if (gbIsMultiplayer || MyPlayer == nullptr || MyPlayer->getCharacterLevel() < 15)
+	if (gbIsMultiplayer || MyPlayer == nullptr || MyPlayer->getCharacterLevel() < 18) /* NDS-LUCES */
 		return;
 	const int e = NdsSucubosEstado();
 	static uint8_t cnt[64];
@@ -2009,7 +2012,7 @@ void NdsSucubosGossip(_speech_id &s) /* NDS-SUCUBOS: dialogos recuperados de la 
 	uint8_t &c = cnt[static_cast<int>(TownerId) & 63];
 	const char *id = nullptr;
 	if (TownerId == TOWN_BMAID) {
-		if (e >= 2) {
+		if (e == 2) { /* NDS-LUCES */
 			if (!graciasDichas) {
 				graciasDichas = true;
 				id = "NDS_SUCC_GILLIAN23";

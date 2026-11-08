@@ -355,8 +355,14 @@ std::expected<AssetData, std::string> LoadIntegralAsset(std::string_view path)
 	return AssetData { std::move(data), size };
 }
 
+#ifdef __NDS__
+extern "C" void nds_log_open_fail(const char *path, const char *err); /* NDS-REGISTRO */
+#endif
 std::string FailedToOpenFileErrorMessage(std::string_view path, std::string_view error)
 {
+#ifdef __NDS__
+	nds_log_open_fail(std::string(path).c_str(), std::string(error).c_str()); /* NDS-REGISTRO */
+#endif
 	return FormatRuntime(_("Failed to open file:\n{:s}\n\n{:s}\n\nThe MPQ file(s) might be damaged. Please check the file integrity."), path, error);
 }
 

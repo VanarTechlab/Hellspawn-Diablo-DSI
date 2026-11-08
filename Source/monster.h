@@ -196,6 +196,7 @@ struct CMonster {
 	int8_t corpseId = 0;
 #ifdef __NDS__ /* NDS-TRN: color del tipo aplicado al dibujar (graficos compartidos) */
 	std::unique_ptr<uint8_t[]> ndsTrn;
+	std::unique_ptr<std::byte[]> ndsParts[MonsterSpritesData::MaxAnims]; /* NDS-PARTIDO: una animacion por bloque */
 #endif
 
 	const MonsterData &data() const

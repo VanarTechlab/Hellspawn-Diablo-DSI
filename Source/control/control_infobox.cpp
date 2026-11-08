@@ -492,7 +492,7 @@ void DrawInfoBox(const Surface &out)
 		if (ndsText.empty() && !gbIsMultiplayer && !setlevel && leveltype == DTYPE_TOWN) { /* NDS-BOSQUE6: cerca de la entrada al bosque */
 			const Point ndsP = MyPlayer->position.tile;
 			if (ndsP.x <= 14 && ndsP.y >= 47 && ndsP.y <= 57) {
-				ndsText = MyPlayer->getCharacterLevel() >= 15 ? _("Entrance to the Forest") : _("Entrance to the Forest (level 15)"); /* NDS-SUCUBOS */
+				ndsText = MyPlayer->getCharacterLevel() >= 18 ? _("Entrance to the Forest") : _("Entrance to the Forest (level 18)"); /* NDS-LUCES */
 				ndsColor = 2;
 			}
 		}

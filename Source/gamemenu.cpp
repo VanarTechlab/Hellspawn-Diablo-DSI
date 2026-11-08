@@ -352,7 +352,10 @@ void gamemenu_save_game(bool /*bActivate*/)
 	const uint32_t currentTime = SDL_GetTicks();
 	SaveGame();
 	ClrDiabloMsg();
-	InitDiabloMsg(EMSG_GAME_SAVED, currentTime + 1000 - SDL_GetTicks());
+	{ /* NDS-MSGGUARDADO: sin dar la vuelta si guardar tarda mas de 1 s */
+		const uint32_t ndsElapsed = SDL_GetTicks() - currentTime;
+		InitDiabloMsg(EMSG_GAME_SAVED, ndsElapsed < 1000 ? 1000 - ndsElapsed : 1);
+	}
 	RedrawEverything();
 	NewCursor(CURSOR_HAND);
 	if (CornerStone.activated) {

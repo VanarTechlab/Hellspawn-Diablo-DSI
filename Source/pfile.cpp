@@ -37,6 +37,7 @@
 #include "utils/endian_swap.hpp"
 #include "utils/file_util.h"
 #include "utils/language.h"
+#include <cerrno> /* NDS-REGISTRO */
 #include "utils/parse_int.hpp"
 #include "utils/paths.h"
 #include "utils/sdl_compat.h"
@@ -132,6 +133,10 @@ bool GetTempSaveNames(uint8_t dwIndex, char *szTemp)
 	return GetSaveNames(dwIndex, "temp", szTemp);
 }
 
+#ifdef __NDS__
+extern "C" void nds_log(const char *fmt, ...); /* NDS-REGISTRO */
+extern "C" int nds_probe_open(const char *path);
+#endif
 void RenameTempToPerm(SaveWriter &saveWriter)
 {
 	char szTemp[MaxMpqPathSize];
@@ -143,6 +148,9 @@ void RenameTempToPerm(SaveWriter &saveWriter)
 		assert(result);
 		dwIndex++;
 		if (saveWriter.HasFile(szTemp)) {
+#ifdef __NDS__ /* NDS-REGISTRO */
+			nds_log("GUARDAR %s existe segun el juego; de verdad=%d", szTemp, nds_probe_open((GetSavePath(gSaveNumber) + szTemp).c_str()));
+#endif
 			if (saveWriter.HasFile(szPerm))
 				saveWriter.RemoveHashEntry(szPerm);
 			saveWriter.RenameFile(szTemp, szPerm);
@@ -586,9 +594,15 @@ bool SaveWriter::WriteFile(const char *filename, const std::byte *data, size_t s
 	const std::string path = dir_ + filename;
 	FILE *file = OpenFile(path.c_str(), "wb");
 	if (file == nullptr) {
+#ifdef __NDS__
+		nds_log("ESCRIBIR FALLA al abrir %s (errno %d)", path.c_str(), errno); /* NDS-REGISTRO */
+#endif
 		return false;
 	}
 	if (std::fwrite(data, size, 1, file) != 1) {
+#ifdef __NDS__
+		nds_log("ESCRIBIR FALLA al escribir %s (%u bytes, errno %d)", path.c_str(), (unsigned)size, errno); /* NDS-REGISTRO */
+#endif
 		std::fclose(file);
 		return false;
 	}
@@ -704,6 +718,8 @@ bool pfile_ui_set_hero_infos(bool (*uiAddHeroInfo)(_uiheroinfo *))
 				_uiheroinfo uihero;
 				uihero.saveNumber = i;
 				CopyUtf8(hero_names[i], std::string_view(pkplr.pName, PlayerNameLength), sizeof(hero_names[i]));
+				if (!gbIsHellfire && pkplr.pClass >= static_cast<uint8_t>(HeroClass::Monk)) /* NDS-HEROESHF: heroe de Hellfire */
+					continue;
 				const bool hasSaveGame = ArchiveContainsGame(*archive);
 				if (hasSaveGame)
 					pkplr.bIsHellfire = gbIsHellfireSaveGame ? 1 : 0;

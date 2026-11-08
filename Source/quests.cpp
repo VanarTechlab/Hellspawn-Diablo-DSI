@@ -211,7 +211,7 @@ void NdsBosqueAlCargar(const Player &myPlayer)
 	if (NdsBosqueLuz.x <= 0)
 		return;
 	const int e = NdsSucubosEstado();
-	if (e >= 2)
+	if (e == 2) /* NDS-LUCES: 3 = aceptada (no terminada) */
 		return;
 	if (e == 1 && NdsAndarielViva()) {
 		NdsAndarielVista = true;
@@ -263,6 +263,30 @@ void NdsBosqueSucubos(const Player &me)
 }
 /* ---- fin NDS-SUCUBOS ---- */
 
+bool NdsTownerTieneMision(int ttype) /* NDS-LUCES: "!" encima del NPC */
+{
+	if (MyPlayer == nullptr)
+		return false;
+	switch (ttype) {
+	case TOWN_BMAID:
+		return !gbIsMultiplayer && MyPlayer->getCharacterLevel() >= 18 && NdsSucubosEstado() == 0;
+	case TOWN_DEADGUY: {
+		const Quest &q = Quests[Q_BUTCHER];
+		return q._qactive != QUEST_NOTAVAIL && q._qactive != QUEST_DONE && q._qvar1 != 1;
+	}
+	case TOWN_FARMER: {
+		const Quest &q = Quests[Q_FARMER];
+		return (q._qactive == QUEST_INIT || q._qactive == QUEST_NOTAVAIL) && (MyPlayer->_pLvlVisited[9] || MyPlayer->getCharacterLevel() >= 15);
+	}
+	case TOWN_GIRL: {
+		const Quest &q = Quests[Q_GIRL];
+		return q._qactive == QUEST_INIT || q._qactive == QUEST_NOTAVAIL;
+	}
+	default:
+		return false;
+	}
+}
+
 void CheckQuests()
 {
 	{ /* NDS-BOSQUE: borde oeste del pueblo <-> bosque (solo un jugador) */
@@ -292,9 +316,11 @@ void CheckQuests()
 		}
 		if (!gbIsMultiplayer && me._pmode == PM_STAND) {
 			const Point t = me.position.tile;
-			if (!setlevel && leveltype == DTYPE_TOWN && t.x <= 10 && t.y >= 49 && t.y <= 54 && me.getCharacterLevel() < 15) /* NDS-SUCUBOS: nivel 15 */
-				NdsAviso(_("You need level 15 to enter the Forest"), 40);
-			if (!setlevel && leveltype == DTYPE_TOWN && t.x <= 10 && t.y >= 49 && t.y <= 54 && me.getCharacterLevel() >= 15) {
+			if (!setlevel && leveltype == DTYPE_TOWN && t.x <= 10 && t.y >= 49 && t.y <= 54 && me.getCharacterLevel() < 18) /* NDS-LUCES: nivel 18 */
+				NdsAviso(_("You need level 18 to enter the Forest"), 40);
+			if (!setlevel && leveltype == DTYPE_TOWN && t.x <= 10 && t.y >= 49 && t.y <= 54 && me.getCharacterLevel() >= 18 && NdsSucubosEstado() == 0) /* NDS-LUCES */
+				NdsAviso(_("Talk to Gillian first"), 40);
+			if (!setlevel && leveltype == DTYPE_TOWN && t.x <= 10 && t.y >= 49 && t.y <= 54 && me.getCharacterLevel() >= 18 && NdsSucubosEstado() != 0) {
 				setlvltype = DTYPE_CATHEDRAL;
 				StartNewLvl(*MyPlayer, WM_DIABSETLVL, SL_BOSQUE);
 				return;

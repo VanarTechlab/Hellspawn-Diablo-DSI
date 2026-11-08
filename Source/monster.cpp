@@ -3571,6 +3571,57 @@ std::expected<void, std::string> InitMonsterSND(CMonster &monsterType)
 	return {};
 }
 
+#ifdef __NDS__ /* NDS-PARTIDO: sprites enormes (Diablo) en un bloque por animacion */
+constexpr size_t NdsPartidoMin = 2048 * 1024;
+
+size_t NdsSplitSize(const MonsterData &monsterData)
+{
+	const size_t numAnims = GetNumAnims(monsterData);
+	FileNameWithCharAffixGenerator pathFn({ "monsters\\", monsterData.spritePath() }, DEVILUTIONX_CL2_EXT, Animletter);
+	size_t total = 0;
+	for (size_t i = 0; i < numAnims; ++i) {
+		if (!monsterData.hasAnim(i))
+			continue;
+		const AssetRef ref = FindAsset(pathFn(i));
+		if (!ref.ok())
+			return 0;
+		total += ref.size();
+	}
+	return total >= NdsPartidoMin ? total : 0;
+}
+
+std::expected<void, std::string> NdsLoadSplit(CMonster &monsterType)
+{
+	const MonsterData &monsterData = monsterType.data();
+	const size_t numAnims = GetNumAnims(monsterData);
+	FileNameWithCharAffixGenerator pathFn({ "monsters\\", monsterData.spritePath() }, DEVILUTIONX_CL2_EXT, Animletter);
+	bool first = true;
+	monsterType.animData = nullptr;
+	for (size_t i = 0; i < numAnims; ++i) {
+		monsterType.ndsParts[i] = nullptr;
+		if (!monsterData.hasAnim(i)) {
+			monsterType.anims[i].sprites = std::nullopt;
+			continue;
+		}
+		size_t size = 0;
+		auto loaded = LoadFileInMemWithStatus<std::byte>(pathFn(i), &size);
+		if (!loaded.has_value())
+			return std::unexpected(std::move(loaded).error());
+		std::unique_ptr<std::byte[]> buf = std::move(loaded).value();
+		auto *d = reinterpret_cast<uint8_t *>(buf.get());
+		const uint16_t numLists = GetNumListsFromClxListOrSheetBuffer(d, size);
+		monsterType.anims[i].sprites = ClxSpriteListOrSheet { d, numLists };
+		if (first) { /* animData no nulo = "graficos ya cargados" para el resto del motor */
+			monsterType.animData = std::move(buf);
+			first = false;
+		} else {
+			monsterType.ndsParts[i] = std::move(buf);
+		}
+	}
+	return {};
+}
+#endif
+
 std::expected<void, std::string> InitMonsterGFX(CMonster &monsterType, MonsterSpritesData &&spritesData)
 {
 	if (HeadlessMode)
@@ -3581,10 +3632,15 @@ std::expected<void, std::string> InitMonsterGFX(CMonster &monsterType, MonsterSp
 #ifdef __NDS__ /* NDS-TRN */
 	monsterType.ndsTrn = nullptr;
 	std::byte *ndsBase;
+	bool ndsSplit = false; /* NDS-PARTIDO */
 	if (spritesData.data == nullptr && NdsSharedSprites != nullptr) {
 		spritesData.offsets = NdsSharedOffsets;
 		monsterType.animData = nullptr;
 		ndsBase = NdsSharedSprites;
+	} else if (spritesData.data == nullptr && NdsSplitSize(monsterData) != 0) { /* NDS-PARTIDO */
+		RETURN_IF_ERROR(NdsLoadSplit(monsterType));
+		ndsBase = nullptr;
+		ndsSplit = true;
 	} else {
 		if (spritesData.data == nullptr)
 			spritesData = LoadMonsterSpritesData(monsterData);
@@ -3597,7 +3653,11 @@ std::expected<void, std::string> InitMonsterGFX(CMonster &monsterType, MonsterSp
 	monsterType.animData = std::move(spritesData.data);
 #endif
 
+#ifdef __NDS__ /* NDS-PARTIDO: con bloques por animacion las animaciones ya estan puestas */
+	const size_t numAnims = ndsSplit ? 0 : GetNumAnims(monsterData);
+#else
 	const size_t numAnims = GetNumAnims(monsterData);
+#endif
 	for (size_t i = 0, j = 0; i < numAnims; ++i) {
 		if (!monsterData.hasAnim(i)) {
 			monsterType.anims[i].sprites = std::nullopt;
@@ -3682,6 +3742,17 @@ std::expected<void, std::string> InitAllMonsterGFX()
 		CMonster &firstMonster = LevelMonsterTypes[monsterTypes[0]];
 		if (firstMonster.animData != nullptr)
 			continue;
+#ifdef __NDS__ /* NDS-PARTIDO: sprite enorme de un solo tipo (Diablo): sin el bloque unico de 3,3 MB */
+		if (monsterTypes.size() == 1) {
+			const size_t ndsBig = NdsSplitSize(firstMonster.data());
+			if (ndsBig != 0) {
+				totalUniqueBytes += ndsBig;
+				totalBytes += ndsBig;
+				RETURN_IF_ERROR(InitMonsterGFX(firstMonster, MonsterSpritesData {}));
+				continue;
+			}
+		}
+#endif
 		MonsterSpritesData spritesData = LoadMonsterSpritesData(firstMonster.data());
 		const size_t spritesDataSize = spritesData.offsets[GetNumAnimsWithGraphics(firstMonster.data())];
 #ifdef __NDS__ /* NDS-TRN: un solo bloque de graficos por sprite; el color de cada tipo se aplica al dibujar */
@@ -3862,6 +3933,8 @@ UniqueMonsterType NdsAndarielId() /* NDS-SUCUBOS */
 	return UniqueMonsterType::None;
 }
 
+int8_t NdsAddUniqueCorpse(Monster &monster); /* NDS-LUCES2 (dead.cpp) */
+
 bool NdsSpawnAndariel(Point position) /* NDS-SUCUBOS: aparece al tocar la luz roja */
 {
 	const UniqueMonsterType id = NdsAndarielId();
@@ -3872,7 +3945,10 @@ bool NdsSpawnAndariel(Point position) /* NDS-SUCUBOS: aparece al tocar la luz ro
 	Monster *monster = AddMonster(position, Direction::South, typeIndex, true);
 	if (monster == nullptr)
 		return false;
-	return PrepareUniqueMonst(*monster, id, 0, 0, data).has_value();
+	if (!PrepareUniqueMonst(*monster, id, 0, 0, data).has_value())
+		return false;
+	monster->corpseId = NdsAddUniqueCorpse(*monster); /* NDS-LUCES2: sin esto, cuelgue al morir */
+	return true;
 }
 
 void SpawnMonster(Point position, Direction dir, size_t typeIndex)
@@ -4470,6 +4546,8 @@ void FreeMonsters()
 		monsterType.corpseId = 0;
 #ifdef __NDS__ /* NDS-TRN */
 		monsterType.ndsTrn = nullptr;
+		for (auto &ndsPart : monsterType.ndsParts) /* NDS-PARTIDO */
+			ndsPart = nullptr;
 #endif
 		for (AnimStruct &animData : monsterType.anims) {
 			animData.sprites = std::nullopt;

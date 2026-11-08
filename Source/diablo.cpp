@@ -136,6 +136,16 @@ namespace devilution {
 
 void NdsBosqueAlCargar(const Player &myPlayer); /* NDS-SUCUBOS (quests.cpp) */
 
+extern "C" int nds_lid_sound(void) /* NDS-TAPA: frase del personaje al cerrar la tapa (1 = suena) */
+{
+	if (!gbRunGame || MyPlayer == nullptr || MyPlayer->_pmode == PM_DEATH)
+		return 0;
+	static const HeroSpeech frases[] = { HeroSpeech::Phew, HeroSpeech::HeavyBreathing, HeroSpeech::IveGotABadFeelingAboutThis,
+		HeroSpeech::ThankTheLight, HeroSpeech::WhatWasThat };
+	MyPlayer->SaySpecific(frases[SDL_GetTicks() % 5]); /* sin tocar el azar de la partida */
+	return 1;
+}
+
 Point MousePosition;
 bool gbRunGameResult;
 bool ReturnToMainMenu;
